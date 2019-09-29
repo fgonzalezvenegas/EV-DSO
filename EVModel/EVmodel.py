@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+F# -*- coding: utf-8 -*-
 """
 Created on Wed Mar  6 13:07:14 2019
 
@@ -38,18 +38,14 @@ def random_from_pdf(pdf, bins):
     return bins[x] + np.random.rand(1) * (bins[x+1] - bins[x])
 
 
-def load_conso_ss_data():
+def load_conso_ss_data(folder = 'c:/user/U546416/Documents/PhD/Data/Mobilité/',
+                       folder_load = 'Data_Traitee/Conso/',
+                       folder_grid = 'Data_Traitee/Reseau/',
+                       file_load_comm = 'consommation-electrique-par-secteur-dactivite-commune-red.csv',
+                       file_load_profile = 'conso_all_pu.csv',
+                       file_ss = 'postes_source.csv'):
     """ load data for conso and substations
-    """
-    folder = 'c:/user/U546416/Documents/PhD/Data/Mobilité/'
-    
-    folder_load = 'Data_Traitee/Conso/'
-    folder_grid = 'Data_Traitee/Reseau/'
-    
-    file_load_comm = 'consommation-electrique-par-secteur-dactivite-commune-red.csv'
-    file_load_profile = 'conso_all_pu.csv'
-    file_ss = 'postes_source.csv'
-    
+    """ 
     # Load load by commune data
     load_by_comm = pd.read_csv(folder + folder_load + file_load_comm, 
                                engine='python', delimiter=';', index_col=0)
@@ -68,15 +64,12 @@ def load_conso_ss_data():
     return load_by_comm, load_profiles, SS
 
 
-def load_hist_data():
-    """ load hitogram data for conso and substations
+def load_hist_data(folder=r'c:/user/U546416/Documents/PhD/Data/Mobilité/', 
+                   folder_hist='',
+                   file_hist_home='HistHome.csv',
+                   file_hist_work='HistWork.csv'):
+    """ load histogram data for conso and substations
     """
-    folder = 'c:/user/U546416/Documents/PhD/Data/Mobilité/'
-    
-    folder_hist = ''
-    
-    file_hist_home = 'HistHome.csv'
-    file_hist_work = 'HistWork.csv'
     
     hist_home = pd.read_csv(folder + folder_hist+ file_hist_home, 
                                engine='python', delimiter=',', index_col=0)
@@ -135,10 +128,10 @@ def interpolate(data, step=15):
 
     
 class Grid:
-    def __init__(self, ev_data, 
+    def __init__(self, 
                  ndays=7, step=30, init_day=0, 
-                 name='def', load=0, ss_pmax=0.1, verbose=True,
-                 **ev_global_params):
+                 name='def', load=0, ss_pmax=20, verbose=True,
+                 buses = []):
         """Instantiates the grid object:
             Creates vectors of ev load, conso load
             for time horizon ndays = default 7, one week
@@ -157,10 +150,6 @@ class Grid:
             raise ValueError('Steps should be a divisor of an 60 minutes \
                              (ex. 30-15-5min), given value: %d' % step)
         
-        ev_data_keys_needed = ['type', 'n_ev']
-        if False in [key in ev_data[ev_group] for key in ev_data_keys_needed for ev_group in ev_data]:
-            raise ValueError('Wrong ev_data. Some attributes are missing:')
-        
         # General params
         self.ndays = ndays
         self.periods = int(ndays * 24 * 60 / step)
@@ -178,39 +167,38 @@ class Grid:
         #Grid params
         self.ss_pmax = ss_pmax              #in MW
         self.name = name
-        # TODO: think of a better way to do this
-        # EV params
-        self.init_evs(ev_data, **ev_global_params)   
+        
+        # Init global vectors           
         self.init_load_vector(load)
         # TODO: load as dataframe, adjusting interpolation and days to given params
+        self.buses = []
+        
+        # Empty arrays for EVs
+        self.types_evs = []
+        self.evs = {}
         print('Grid instantiated')
         
         
-    def init_evs(self, ev_data, **ev_global_params):
+    def add_evs(self, nameset, n_evs, ev_type, **ev_params):
         """ Initiates EVs give by the dict ev_data and other ev global params
         """
         ev_types = {'dumb' : EV,
-                    'mod': EV_Modulated}
+                    'mod': EV_Modulated,
+                    'randstart': EV_RandStart,
+                    'reverse': EV_DumbReverse}
+        ev_fx = ev_types[ev_type]
+       
+        evset = []
+        if self.verbose:
+            print('Creating EV set {} containing {} {} EVs'.format(
+                    nameset, n_evs, ev_type))
+        for i in range(n_evs):
+            evset.append(ev_fx(self, name=nameset+str(i), **ev_params))
         
-        self.types_evs = [key for key in ev_data]
-        # dict 
-        self.evs = {}
-        
-        for key in ev_data:
-            self.evs[key] = []
-            if self.verbose:
-                print('Creating %d %s EVs' %(ev_data[key]['n_ev'], key))
-            for i in range(ev_data[key]['n_ev']):
-                if 'other' in ev_data[key]:
-                    self.evs[key].append(
-                        ev_types[ev_data[key]['type']](self, [key, str(i)], 
-                                  **ev_data[key]['other'], 
-                                  **ev_global_params))
-                else:
-                    self.evs[key].append(
-                            ev_types[ev_data[key]['type']](self, [key, str(i)], **ev_global_params))
-
-                        
+        self.types_evs.append(nameset)
+        self.evs[nameset] = evset
+        self.init_ev_vectors(nameset)
+                
     def init_load_vector(self, load):
         """ Creates empty array for global variables"""
         self.ev_load = {'Total': np.zeros(self.periods)}
@@ -220,37 +208,63 @@ class Grid:
         self.ev_dn_flex = {'Total': np.zeros(self.periods)}
         self.ev_mean_flex = {'Total': np.zeros(self.periods)}
         self.ev_batt = {'Total': np.zeros(self.periods)}
-        for types in self.evs:
-            self.ev_load[types] = np.zeros(self.periods)
-            self.ev_potential[types] = np.zeros(self.periods)
-            self.ev_off_peak_potential[types] = np.zeros(self.periods)
-            self.ev_up_flex[types] = np.zeros(self.periods)
-            self.ev_dn_flex[types] = np.zeros(self.periods)
-            self.ev_mean_flex[types] = np.zeros(self.periods)
-            self.ev_batt[types] = np.zeros(self.periods)
         if type(load) == int:
             #TODO: load as DataFrame?
             #no base load given
             self.base_load = np.zeros(self.periods)
         else:
             self.base_load = load
+   
+    def init_ev_vectors(self, nameset):
+        """ Creates empty array for global EV variables per set of EV"""
+        self.ev_load[nameset] = np.zeros(self.periods)
+        self.ev_potential[nameset] = np.zeros(self.periods)
+        self.ev_off_peak_potential[nameset] = np.zeros(self.periods)
+        self.ev_up_flex[nameset] = np.zeros(self.periods)
+        self.ev_dn_flex[nameset] = np.zeros(self.periods)
+        self.ev_mean_flex[nameset] = np.zeros(self.periods)
+        self.ev_batt[nameset] = np.zeros(self.periods)
+        
     
-    
+    def assign_ev_bus(self, evtype, buses, ev_per_bus):
+        """ Asign a bus for a group of evs (evtype), in a random fashion,
+        limited to a maximum number of evs per bus
+        """
+        available_buses = [buses[i] for i in range(len(buses)) for j in range(ev_per_bus[i])]
+        np.random.shuffle(available_buses)
+        ev = self.evs[evtype]
+        if len(ev) > len(available_buses):
+            strg = ('Not sufficient slots in buses for the number of EVs\n'+
+                '# slots {}, # EVs {}'.format(len(available_buses), len(ev)))
+            raise ValueError(strg)
+        for i in range(len(ev)):
+            ev[i].bus = available_buses[i] 
+            
     def new_day(self):
-        # Iterates over evs to compute new day 
+        """ Iterates over evs to compute new day 
+        """
         for types in self.evs:
             for ev in self.evs[types]:
                 ev.new_day(self)
-        
-        
-    def do_days(self):
-        # Iterates over days to compute charging 
-        for d in range(self.ndays):
-            if self.verbose:
-                print('Grid {}: Computing day {}'.format(self.name, self.day))
-            self.new_day()
-            self.day += 1
-        # Computes aggregated charging per type of EV and then total for the grid 
+    
+    def compute_per_bus_data(self):
+        """ Computes aggregated ev load per bus and ev type
+        """
+        load_ev = {}
+        print(load_ev)
+        for types in self.evs:
+            for ev in self.evs[types]:
+                if (types, ev.bus) in load_ev:
+                    load_ev[types, ev.bus] += ev.charging
+                else:
+                    load_ev[types, ev.bus] = ev.charging *1
+        return load_ev
+    
+    def compute_agg_data(self) :    
+        """ Computes aggregated charging per type of EV and then total for the grid 
+        """
+        if self.verbose:
+            print('Grid {}: Computing aggregated data'.format(self.name))
         for types in self.evs:
             for ev in self.evs[types]:
                 self.ev_potential[types] += ev.potential
@@ -267,6 +281,17 @@ class Grid:
         self.ev_dn_flex['Total'] = sum([self.ev_dn_flex[types] for types in self.evs])
         self.ev_mean_flex['Total'] = sum([self.ev_mean_flex[types] for types in self.evs])
         self.ev_batt['Total'] = sum([self.ev_batt[types] for types in self.evs])
+        
+    def do_days(self, agg_data=True):
+        """Iterates over days to compute charging 
+        """
+        for d in range(self.ndays):
+            if self.verbose:
+                print('Grid {}: Computing day {}'.format(self.name, self.day))
+            self.new_day()
+            self.day += 1
+        if agg_data:
+            self.compute_agg_data()
         
     def plot_evload(self, **plot_params):
         """ Stacked plot of EV charging load
@@ -344,7 +369,7 @@ class Grid:
         ax.set_xlim([0, self.ndays * 24])
         ax.legend(loc=1)
         
-    def compute_global_data(self):
+    def get_global_data(self):
         """ Some global info
         """
         total_ev_charge = self.ev_load['Total'].sum() * self.period_dur
@@ -410,7 +435,48 @@ class Grid:
         """ Returns list of evs
         """
         return [ev for key in self.evs for ev in self.evs[key]]
-
+    
+    def export_ev_data(self, atts=''):
+        """ returns a dict with ev data
+        atts : attributes to export
+        """
+        if atts == '':
+            atts = ['name', 'bus', 'dist_wd', 'dist_we']
+        ev_data = {}
+        for types in self.evs:
+            ev_data[types] = []
+            for ev in self.evs[types]:
+                ev_data[types].append({att : getattr(ev, att) for att in atts})
+        return ev_data
+    
+    def import_ev_data(self, ev_data):
+        """ sets ev data
+        ev_data is a dict
+        {types0: [{ev0}, {ev1}, ...],
+         types1: [{ev0}, {ev1}, ...]}
+        and evi
+        evi = {att, val}, with attribute and value
+        """
+        for types in ev_data:
+            ev_set = self.evs[types]
+            for i in range(len(ev_data[types])):
+                ev = ev_data[types][i]
+                for att in ev:
+                    setattr(ev_set[i], att, ev[att])
+    
+    def evs_per_bus(self):
+        """Returns the list of buses and the number of evs per bus 
+        """
+        busev = []
+        for ev in self.get_evs():
+            busev.append(ev.bus)
+        busev = np.array(busev)
+        buslist = np.unique(busev)
+        evs_bus = []
+        for b in buslist:
+            evs_bus.append((busev == b).sum())
+        return buslist, evs_bus
+        
 class EV:
     """ Basic EV model with dumb charging
     """
@@ -431,7 +497,8 @@ class EV:
                  extra_trip_proba = 0,
                  arrival_departure_data_wd = {},
                  arrival_departure_data_we = {'mu_arr':16, 'mu_dep':8,
-                                              'std_arr':2, 'std_dep':2}):
+                                              'std_arr':2, 'std_dep':2},
+                 bus=''):
         """Instantiates EV object:
            name id
            sets home-work distance [km]
@@ -460,13 +527,12 @@ class EV:
             self.set_discrete_random_data(batt_size[0], batt_size[1])
         else:
             ValueError('Invalid charging_eff value')               
-        # TODO: Add eff to equations
         self.charging_eff = charging_eff                # Charging efficiency, in pu
         self.discharging_eff = discharging_eff          # Discharging efficiency, in pu
         self.driving_eff = driving_eff                  # Driving efficiency kWh / km
         self.min_soc = 0.2                              # Min SOC of battery
         self.n_trips = 2                                # Number of trips per day (Go and come back)
-        self.extra_trip_proba = extra_trip_proba        #probability of extra trip
+        self.extra_trip_proba = extra_trip_proba        # probability of extra trip
         if not charging_type in ['if_needed', 'if_needed_sunday', 'all_days']:
             ValueError('Invalid charging type %s' %charging_type)
         self.charging_type = charging_type              # Charging behavior (every day or not)
@@ -479,6 +545,9 @@ class EV:
         self.eff_per_period = model.period_dur * self.charging_eff 
         self.soc_eff_per_period = self.eff_per_period / self.batt_size
         self.soc_v2geff_per_period = model.period_dur / self.batt_size / self.discharging_eff
+        
+        # Grid Params
+        self.bus = ''
 
         
         # RESULTS/VARIABLES
@@ -493,7 +562,8 @@ class EV:
         self.set_off_peak(model)
         
     def set_dist(self, cdf_dist):
-        """Initiates distance home-work given by a cumulative distribution function
+        """Returns one-way distance given by a cumulative distribution function
+        The distance is limited to 120km
         """
         if type(cdf_dist) == int:
             #means no pdf has been given, using default values lognormal distribution
@@ -507,11 +577,15 @@ class EV:
             return random_from_pdf(cdf_dist, bins_dist)
         
     def set_discrete_random_data(self, data_values, values_prob):
+        """ Returns a random value from a set data_values, according to the probability vector values_prob
+        """
         np.random.choice(data_values, p=values_prob)
         
     def set_arrival_departure(self, pdf_arr = 0, pdf_dep = 0, 
                               mu_arr = 18, mu_dep = 8, 
-                              std_arr = 2, std_dep = 1):
+                              std_arr = 2, std_dep = 2):
+        """ Sets arrival and departure times
+        """
         if type(pdf_arr) == int:
             self.arrival = np.random.randn(1) * std_arr + mu_arr
 
@@ -587,17 +661,17 @@ class EV:
         """ Defines charging status for the session. 
         True means it will charge this session
         """
-        # How to compute next_trip?
+        # TODO: How to compute next_trip?
         next_trip_energy = ((self.dist_wd if model.days[model.day + 1] < 5 
                                             else self.dist_we) * 
                             self.n_trips * self.driving_eff)
         # TODO: Other types of charging ?
         if self.charging_type == 'all_days':
             return True
-#        if self.charging_type == 'weekdays':
-#            if not model.days[model.day] in model.weekends:
-#                return True
-#            return False
+        if self.charging_type == 'weekdays':
+            if not model.days[model.day] in model.weekends:
+                return True
+            return False
 #        if self.charging_type == 'weekends':
 #            # TODO: Complete if charging is needed
 #            if model.days[model.day] in model.weekends:
@@ -753,4 +827,74 @@ class EV_Modulated(EV):
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
         
+class EV_RandStart(EV):
+    """ Class of EV that charges "dumb", but starting at a random hour within 
+    the time-charge constraints
+    Ex: An EV needs to charge 22kWh with a 11kW charger, 
+    arrives at 8:00am, leaves at 13:00.
+    Dumb (as soon as plugged): Charge at 11kW between 8-10h
+    DumbReverse : Charge at 11kW between 11-13h (departure time)
+    Modulated : Charge at 4,4kW between 8-13h (22kWh/5h)
+    RandStart : Charges for 2h at 11kW starting at random between 8-11h
+    """
+    def __init__(self, model, name, **params):
+        super().__init__(model, name, **params)
+        
+    def compute_charge(self, model, idx_tini, idx_tend):
+        """ compute random start charge
+        """
+        opp = self.off_peak_potential[idx_tini:idx_tend+1]
+        needed_soc = 1 - self.soc_ini[model.day]
+        needed_time = needed_soc / (
+                self.soc_eff_per_period * self.charging_power)      # Number of periods that need charging                                                                    
+        session_time = opp.sum() / self.charging_power              # Number of periods for charging
+        
+        if session_time > needed_time:                              # Number of periods of delay for charging
+            randstart = np.random.random() * (session_time - needed_time)
+        else:
+            randstart = 0
+        # SOC is computed as the cumulative sum of charged energy  (Potential[pu] * Ch_Power*Efficiency*dt / batt_size) 
+        # but with a delay of randstart number of periods
+        soc = ((opp.cumsum() - randstart * self.charging_power).clip(min=0) * 
+               self.soc_eff_per_period + self.soc_ini[model.day]).clip(0,1)
+        # charging power
+        power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
+        
+        # chssarged_energy
+        self.charged_energy[model.day] = (soc[-1]-soc[0]) * self.batt_size
+        self.soc[idx_tini:idx_tend+1] = soc
+        self.charging[idx_tini:idx_tend+1] = power
+        
+class EV_DumbReverse(EV):
+    """ Class of EV that charges "dumb" to be ready at departure hour
+    Ex: An EV needs to charge 22kWh with a 11kW charger, 
+    arrives at 8:00am, leaves at 13:00.
+    Dumb (as soon as plugged): Charge at 11kW between 8-10h
+    DumbReverse : Charge at 11kW between 11-13h (departure time)
+    Modulated : Charge at 4,4kW between 8-13h (22kWh/5h)
+    RandStart : Charges for 2h at 11kW starting at random between 8-11h
+    
+    """
+    def __init__(self, model, name, **params):
+        super().__init__(model, name, **params)
+        
+    def compute_charge(self, model, idx_tini, idx_tend):
+        """ compute Reverse dumb charge
+        """
 
+        # off peak potential in "per unit" of time step
+        opp = self.off_peak_potential[idx_tini:idx_tend+1]  
+        
+        
+        # reverse charging
+        rev_ch = (opp[::-1].cumsum()[::-1] * self.soc_eff_per_period).clip(
+                            max=1-self.soc_ini[model.day])
+        soc = self.soc_ini[model.day] + (rev_ch.max() - rev_ch)
+        # charging power
+        power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
+        
+        # charged_energy
+        self.charged_energy[model.day] = (soc[-1]-soc[0]) * self.batt_size
+        self.soc[idx_tini:idx_tend+1] = soc
+        self.charging[idx_tini:idx_tend+1] = power
+        
