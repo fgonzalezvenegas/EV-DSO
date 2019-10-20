@@ -66,3 +66,50 @@ plot_non_syst(n=4, max_soc=100)
 plot_non_syst(n=4, max_soc=80)
 plot_non_syst(n=100, max_soc=100)
 plot_non_syst(n=100, max_soc=80)
+
+#%%
+def plot_det():
+    step = 0.1
+    soc = np.arange(0,100+step,step)
+    
+    kms = 60  #km/day
+    eff = 0.2 #[kWh/km]
+    energy_needed = kms * eff #kWh
+    
+    batt = 40
+    
+    soc_needed = energy_needed / batt * 100
+    
+    range_anx = 1.5
+    
+    soc_min_anx = soc_needed * range_anx
+    
+    prob_plugin0 = np.ones(len(soc)) 
+    
+    for k in range(len(soc)):
+        if k * step > soc_min_anx:
+            prob_plugin0[k] = 0
+                
+    f, ax = plt.subplots()
+    ax.plot(soc, prob_plugin0, label='Deterministic')
+    ax.vlines(x=soc_needed, ymin=0, ymax=1.5, colors='k', linestyles='--')
+    ax.vlines(x=soc_min_anx, ymin=0, ymax=1.5, colors='k', linestyles='--')
+    #ax.vlines(x=max_soc, ymin=0, ymax=1.5, colors='k', linestyles='--')
+    ax.set_xlim([0,100])
+    ax.set_ylim([0,1.1])
+    ax.annotate("SOC needed\nfor next trip", 
+                xy=(soc_needed, 0.95), 
+                xytext=(soc_needed*range_anx+10, 0.95),
+                arrowprops=dict(arrowstyle="->",
+                                color='red'))
+    ax.annotate('SOC needed\nconsidering range anxiety', 
+                xy=(soc_min_anx, 0.7), 
+                xytext=(soc_min_anx+20, 0.7),
+                arrowprops=dict(arrowstyle="->",
+                                color='red'))
+    #plt.legend(loc=3)
+    plt.xlabel('State of Charge [%]')
+    plt.ylabel('Probability')
+    ax.set_title('Plug-in probability')
+    
+plot_det()
