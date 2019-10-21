@@ -6,7 +6,6 @@ Inputs: Raw file de courbe de charge
 "Agrégats segmentés de consommation électrique au pas 1/2 h des points de soutirage <= 36kVA"
 Sans répartition par puissance (i.e. seulement données PTotal par profil)
 "Agrégats segmentés de consommation électrique au pas 1/2 h des points de soutirage > 36kVA"
-Assignation des communes aux postes sources
 @author: U546416
 """
 
@@ -47,7 +46,7 @@ pvtable = pd.pivot_table(consoinf36, columns='Profil',
 pt = pd.pivot_table(consoinf36,index='Date', values=['JMaxMois','SMaxMois'])
 #% Computing aggregated load curves
 print('Computing aggregated tables')
-profils = {'ENT': ['ENT1 (+ ENT2)', 'ENT3 (+ ENT4 + ENT5)'], 
+profils = {'ENT': ['ENT1 (+ ENT2)', 'ENNbT3 (+ ENT4 + ENT5)'], 
            'PRO': ['PRO1 (+ PRO1WE)', 'PRO2 (+ PRO2WE + PRO6)', 
                     'PRO3', 'PRO4', 'PRO5'],
            'RES': ['RES1 (+ RES1WE)', 'RES11 (+ RES11WE)', 
@@ -73,7 +72,7 @@ print('Processing data and parsing')
 filtervalues = ['P3: Total ]36-250] kVA', 'P7: Total > 250 kVA']
 
 consosup36 = pd.concat([consosup36[consosup36.PSouscrite == fval] for fval in filtervalues])
-#Before parsing dates, reduce size of data, removing all
+#Before parsing dates, reduce size of data, only leaving values for [36-250kVA] and [>250kVA]
 print('Parsing Dates')
 consosup36.Date = consosup36.Date.apply(
         lambda x: dt.datetime.strptime(''.join(x.rsplit(':',1)), fmtdt)) #ca marche et pas trop lent
@@ -105,75 +104,3 @@ pvtable_all_pu = pd.concat([pvtable_inf_pu, pvtable_sup_pu], axis=1)
 #pvtable_sup.to_csv(folder_modif + 'conso_sup36.csv')
 #pvtable_inf.to_csv(folder_modif + 'conso_inf36.csv')
 
-#%% Reading comm & trafo data
-print('loading data conso per commune')
-fncomm = 'consommation-electrique-par-secteur-dactivite-commune-red.csv'
-
-conso_comm = pd.read_csv(folder_modif + fncomm, engine='python', delimiter=';', 
-                         index_col=0)
-Tgeo = pd.read_csv('c:/user/U546416/Documents/PhD/Data/Mobilité/geoRefs.csv', 
-                 engine='python', delimiter=';', index_col=0)
-SS = pd.read_csv('c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau/postes_source.csv', 
-                 engine='python', delimiter=';', decimal = ',', index_col=0)
-
-
-#%% Assign commune to substation, given closer substation
-
-comm_to_ss = {}
-i = 0
-print('Starting to compute closer trafo')
-for comm in Tgeo.index:
-    i += 1
-    if i % 500 == 0:
-        print(i)
-    if (Tgeo.ZE[comm] > 9900 or #This means it is outside france
-        comm[0:2] == '97' or        #This means its guyanne
-        comm[0:2] == '2A' or    #This means its corse
-        comm[0:2] == '2B')  :     #This means its corse
-        comm_to_ss[comm] = 'NoSS'
-    else:
-        latlon = np.asarray([Tgeo.GeoLat[comm], Tgeo.GeoLong[comm]])
-        d = 1000
-        degree = 0.3
-        for s in SS.loc[(SS.Lat-latlon[0] < degree) & (SS.Lon-latlon[1] < degree) 
-                & (SS.Lat-latlon[0] > -degree) & (SS.Lon-latlon[1] > -degree)].index:
-            dd = mb.computeDist(latlon, np.asarray([SS.Lat[s], SS.Lon[s]]))
-            if dd < d:
-                d = dd
-                comm_to_ss[comm] = s
-print('finished computing closer trafo, assigned comms %d' %len(comm_to_ss))
-
-#%% 
-c_no_ss = []
-comm_in_ss = {}
-for comm in Tgeo.index:
-    if not comm in comm_to_ss:
-        c_no_ss.append(comm)
-    elif comm_to_ss[comm] in comm_in_ss:
-        comm_in_ss[comm_to_ss[comm]].append(comm)
-    else:
-        comm_in_ss[comm_to_ss[comm]] = [comm]
-
-ss_no_c = []
-for ss in SS.index:
-    if not ss in comm_in_ss:
-        ss_no_c.append(ss)
-print(ss_no_c)
-print(c_no_ss)
-SS['Communes']= pd.Series(comm_in_ss)
-SS.to_csv('c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau/postes_source.csv')
-#%%           
-out =  ['2A', '2B', '97', 'SU', 'BE', 'LU', 'AL']
-Tfr = Tgeo
-for odep in out:
-    Tfr = Tfr[Tfr.Dep != odep]
-
-plt.plot(Tfr.GeoLong, Tfr.GeoLat,'*', label='Communes')
-plt.plot(Tfr.GeoLong[c_no_ss], Tfr.GeoLat[c_no_ss],'*', label='Communes w/o SS')
-plt.plot(SS.Lon, SS.Lat,'*', label='Substations')
-plt.plot(SS.Lon[ss_no_c], SS.Lat[ss_no_c],'*', label='SS w/o Commune')
-plt.ylabel('Latitude')
-plt.xlabel('Longitude')
-plt.title('Communes and Substations')
-plt.xlim([-6,10])
-plt.legend()

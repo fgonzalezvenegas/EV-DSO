@@ -82,6 +82,7 @@ ax11.set_xticks(np.arange(ndays) * 24 * 4)
 ax11.set_ylim([0, 30000])
 ax11.set_xticklabels(dlabels)
 ax11.grid(axis='x')
+
 #%% Plot average up and dn flex
 nevs = np.zeros(ndays)
 for ev in grid2.get_evs():

@@ -1,4 +1,4 @@
-F# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Created on Wed Mar  6 13:07:14 2019
 
@@ -24,7 +24,7 @@ dist_function = np.sin(bins_dist[:-1]/ 100 * np.pi * 2) + 1
 dist_function[10:15] = [0, 0, 0 , 0 , 0]
 pdfunc = (dist_function/sum(dist_function)).cumsum()
 
-bins_hours = np.arange(0,24,0.15)
+bins_hours = np.linspace(0,24,num=25)
 
 
 def random_from_pdf(pdf, bins):
@@ -101,18 +101,18 @@ def compute_load_from_ss(load_by_comm, load_profiles, SS, ss):
     return load_profiles * factors
 
 
-def get_max_load_week(load, step=30, extradays=0):
-    """ Returns the week of max load
+def get_max_load_week(load, step=30, buffer_before=0, buffer_after=0):
+    """ Returns the week of max load. It adds Xi buffer days before and after
     """
     if type(load.index[0]) == str:
         fmtdt = '%Y-%m-%d %H:%M:%S%z'
         #parse!
         load.index = load.index.map(lambda x: dt.datetime.strptime(''.join(x.rsplit(':',1)), fmtdt))
-    idmax = load.sum(axis=1).idxmax()
+    idmax = load.idxmax()
     dwmax = idmax.weekday()
-    dini = idmax - dt.timedelta(days=dwmax, hours=idmax.hour, minutes=idmax.minute)
-    dend = dini + dt.timedelta(days=7+extradays) #- dt.timedelta(minutes=30)
-    return load.loc[dini:dend,:]
+    dini = idmax - dt.timedelta(days=dwmax+buffer_before, hours=idmax.hour, minutes=idmax.minute)
+    dend = dini + dt.timedelta(days=7+buffer_after+buffer_before) #- dt.timedelta(minutes=30)
+    return load.loc[dini:dend]
 
 
 def interpolate(data, step=15):
@@ -293,7 +293,7 @@ class Grid:
         if agg_data:
             self.compute_agg_data()
         
-    def plot_evload(self, **plot_params):
+    def plot_ev_load(self, opp=True, **plot_params):
         """ Stacked plot of EV charging load
         """
         load = [self.ev_load[types] for types in self.types_evs]
@@ -304,9 +304,10 @@ class Grid:
         else:
             ax = plot_params['ax']
         ax.stackplot(x, load, labels=self.types_evs)
-        ax.plot(x, self.ev_potential[tot], label='EV potential')
-        if not (self.ev_potential[tot] == self.ev_off_peak_potential[tot]).all():
-            ax.plot(x, self.ev_off_peak_potential[tot], label='EV off-peak potential')
+        if opp:
+            ax.plot(x, self.ev_potential[tot], label='EV potential')
+            if not (self.ev_potential[tot] == self.ev_off_peak_potential[tot]).all():
+                ax.plot(x, self.ev_off_peak_potential[tot], label='EV off-peak potential')
         ax.legend(loc=1)
         ax.set_ylabel('Power [kW]')
         ax.set_xlabel('Time [h]')
@@ -319,16 +320,18 @@ class Grid:
         ax.set_xlim([0, self.ndays * 24])
    
      
-    def plot_tot_load(self, **plot_params):
+    def plot_tot_load(self, day_ini=0, days=-1, **plot_params):
         """ Stacked plot of EV charging load + base load
         """
         tot = 'Total'
+        t0 = self.periods_day * day_ini
+        tf = self.periods_day * (days + day_ini)
         x = [t[0] * 24 + t[1] for t in self.times]
         if not 'ax' in plot_params:
             f, ax = plt.subplots(1,1)
         else:
             ax = plot_params['ax']
-        ax.stackplot(x, [self.base_load, self.ev_load[tot]/1000], labels=['Base Load', 'EV Load'])
+        ax.stackplot(x[t0:tf], [self.base_load[t0:tf], self.ev_load[tot][t0:tf]/1000], labels=['Base Load', 'EV Load'])
         ax.set_ylabel('Power [MW]')
         ax.set_xlabel('Time [h]')
         if self.ss_pmax > 0:
@@ -485,20 +488,21 @@ class EV:
                  cdf_dist_wd=0,
                  cdf_dist_we=0, 
                  charging_power=3.6, 
-                 charging_eff = 0.95,
-                 discharging_eff = 0.95,
+                 charging_eff=0.95,
+                 discharging_eff=0.95,
                  charging_type='all_days',
-                 tou_ini = 0,
-                 tou_end = 0,
-                 tou_we = False,
+                 tou_ini=0,
+                 tou_end=0,
+                 tou_we=False,
                  driving_eff=0.2, 
                  batt_size=40,
-                 range_anx_factor = 1.5,
-                 extra_trip_proba = 0,
+                 range_anx_factor=1.5,
+                 extra_trip_proba=0,
                  arrival_departure_data_wd = {},
                  arrival_departure_data_we = {'mu_arr':16, 'mu_dep':8,
                                               'std_arr':2, 'std_dep':2},
-                 bus=''):
+                 bus='',
+                 n_if_needed=100):
         """Instantiates EV object:
            name id
            sets home-work distance [km]
@@ -518,25 +522,27 @@ class EV:
         if type(charging_power) is int or type(charging_power) is float:
             self.charging_power = charging_power
         elif len(charging_power) == 2:
-            self.set_discrete_random_data(charging_power[0], charging_power[1])
+            self.charging_power = self.set_discrete_random_data(charging_power[0], charging_power[1])
         else:
             ValueError('Invalid charging_power value')     
         if type(batt_size) is int or type(batt_size) is float:
             self.batt_size = batt_size
         elif len(batt_size) == 2:
-            self.set_discrete_random_data(batt_size[0], batt_size[1])
+            self.batt_size = self.set_discrete_random_data(batt_size[0], batt_size[1])
         else:
             ValueError('Invalid charging_eff value')               
         self.charging_eff = charging_eff                # Charging efficiency, in pu
         self.discharging_eff = discharging_eff          # Discharging efficiency, in pu
         self.driving_eff = driving_eff                  # Driving efficiency kWh / km
-        self.min_soc = 0.2                              # Min SOC of battery
+        self.min_soc = 0.2                              # Min SOC of battery to define plug-in
+        self.max_soc = 0.8                              # Max SOC of battery to define plug-in
         self.n_trips = 2                                # Number of trips per day (Go and come back)
         self.extra_trip_proba = extra_trip_proba        # probability of extra trip
-        if not charging_type in ['if_needed', 'if_needed_sunday', 'all_days']:
+        if not charging_type in ['if_needed', 'if_needed_sunday', 'all_days', 'if_needed_prob', 'weekdays']:
             ValueError('Invalid charging type %s' %charging_type)
         self.charging_type = charging_type              # Charging behavior (every day or not)
         self.range_anx_factor = range_anx_factor        # Range anxiety factor for "if needed" charging
+        self.n_if_needed = n_if_needed                  # Factor for probabilitic "if needed" charging. High means low plug in rate, low means high plug in rate
         self.tou_ini = tou_ini                          # Time of Use (low tariff) start time (default=0) 
         self.tou_end = tou_end                          # Time of Use (low tariff) end time (default=0)
         self.tou_we = tou_we                            # Time of Use for weekend
@@ -579,7 +585,7 @@ class EV:
     def set_discrete_random_data(self, data_values, values_prob):
         """ Returns a random value from a set data_values, according to the probability vector values_prob
         """
-        np.random.choice(data_values, p=values_prob)
+        return np.random.choice(data_values, p=values_prob)
         
     def set_arrival_departure(self, pdf_arr = 0, pdf_dep = 0, 
                               mu_arr = 18, mu_dep = 8, 
@@ -588,7 +594,6 @@ class EV:
         """
         if type(pdf_arr) == int:
             self.arrival = np.random.randn(1) * std_arr + mu_arr
-
         else:
             self.arrival = random_from_pdf(pdf_arr, bins_hours)
         if type(pdf_dep) == int:
@@ -665,6 +670,8 @@ class EV:
         next_trip_energy = ((self.dist_wd if model.days[model.day + 1] < 5 
                                             else self.dist_we) * 
                             self.n_trips * self.driving_eff)
+        min_soc_trip = max(next_trip_energy * self.range_anx_factor / self.batt_size, self.min_soc)
+        
         # TODO: Other types of charging ?
         if self.charging_type == 'all_days':
             return True
@@ -685,12 +692,20 @@ class EV:
             if self.charging_type == 'if_needed_sunday' and model.days[model.day] == 6:
                 #Force charging only on sundays
                 return True
-            if (self.soc_ini[model.day] * self.batt_size < next_trip_energy * self.range_anx_factor 
-                    or self.soc_ini[model.day] < self.min_soc):
+            if (self.soc_ini[model.day]  < min_soc_trip):
                 # Charging because it is needed for expected next day
                 return True
-            
-            return False
+            if self.soc_ini[model.day] >= self.max_soc:
+                return False
+            if self.n_if_needed >=100:
+                # Deterministic case, where if it is not needed, no prob of charging
+                return False
+            p = np.random.rand(1)
+            p_cut = ((self.max_soc - self.soc_ini[model.day]) / (self.max_soc - min_soc_trip)) ** self.n_if_needed
+            return p < p_cut
+
+        
+
     
 
     def do_charging(self, model):

@@ -39,6 +39,33 @@ def readTgeo(fold, file):
     print('Finish reading Tgeo')
     return Tgeo
 
+def readModal(fold, file):
+    # Create dict of geoRefs for Modal transport
+    Modal = {}
+    with open(fold + file, 'r') as datafile:
+        reader = csv.reader(datafile, delimiter=';')
+        headers = next(reader)
+        #CODGEO;LIBGEO;ZE;Zone d'Emploi;Type;Status;UU;Dep;MC-AUCUN;MC-PIED;MC-2ROUES;MC-VOITURE;MC-TC;DC-AUCUN;DC-PIED;DC-2ROUES;DC-VOITURE;DC-TC
+        idx_same_comm = headers.index('MC-AUCUN')
+        idx_car_sc =  headers.index('MC-VOITURE')
+        idx_diff_comm = headers.index('DC-AUCUN')
+        idx_car_dc =  headers.index('DC-VOITURE')
+        #print(headers_tgeo)
+        for rows in reader:
+            ts = sum(int(i) for i in rows[idx_same_comm:idx_same_comm+5])
+            td = sum(int(i) for i in rows[idx_diff_comm:idx_diff_comm+5])
+            if ts == 0:
+                ratio_sc = 0
+            else:
+                ratio_sc = int(rows[idx_car_sc]) / ts
+            if td == 0:
+                ratio_dc = 0
+            else:
+                ratio_dc = int(rows[idx_car_dc]) / td
+            Modal[rows[0]] = [ratio_sc, ratio_dc]
+    print('Finish reading Modal')
+    return Modal
+
 
 def initFrCommDict(Tgeorefs, nzeros):
     """ Creates a dict of key: Code for french commune, 
