@@ -102,7 +102,7 @@ def plot_det():
                 xytext=(soc_needed*range_anx+10, 0.95),
                 arrowprops=dict(arrowstyle="->",
                                 color='red'))
-    ax.annotate('SOC needed\nconsidering range anxiety', 
+    ax.annotate('SOC needed\nconsidering\nrange anxiety', 
                 xy=(soc_min_anx, 0.7), 
                 xytext=(soc_min_anx+20, 0.7),
                 arrowprops=dict(arrowstyle="->",

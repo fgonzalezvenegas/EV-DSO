@@ -249,9 +249,9 @@ grid5 = evmodel.Grid(ev_data2, ndays=ndays-1, step=step)
 grid5.do_days()
 grid6 = evmodel.Grid(ev_data3, ndays=ndays-1, step=step)
 grid6.do_days()
-#%% Hisogram of dist
+#%% Histogram of number of sessions
 f, axs = plt.subplots(1,3)
-grids = [grid1, grid2, grid3]
+grids = [grid1, grid2, grid3] #1000 EVs
 grids = [grid4, grid5, grid6]
 ds = [[]] * 3
 dhs = [[]] * 3
@@ -295,6 +295,8 @@ ax.set_ylabel('Density')
 #grid4.do_ncharging_hist(ax=ax4, title='#Charging Sessions, Bat=24 kWh, 7.2kW')
 #grid5.do_ncharging_hist(ax=ax5, title='#Charging Sessions, Bat=40 kWh, 7.2kW')
 #grid6.do_ncharging_hist(ax=ax6, title='#Charging Sessions, Bat=60 kWh, 7.2kW')
+
+
 #%% Do histogram of distances
 #import model as evmodel
 

@@ -78,12 +78,12 @@ def load_hist_data(folder=r'c:/user/U546416/Documents/PhD/Data/Mobilité/',
     return hist_home, hist_work
 
 
-def extract_hist(hist, comms):
-    """ returns histograms for communes
-    """
-    labels = ['UU', 'ZE', 'Status', 'Dep']
-    cols_h = hist.columns.drop(labels)
-    return pd.DataFrame({c: np.asarray(hist.loc[c,cols_h]) for c in comms}).transpose()
+#def extract_hist(hist, comms):
+#    """ returns histograms for communes
+#    """
+#    labels = ['UU', 'ZE', 'Status', 'Dep']
+#    cols_h = hist.columns.drop(labels)
+#    return pd.DataFrame({c: np.asarray(hist.loc[c,cols_h]) for c in comms}).transpose()
     
 
 def compute_load_from_ss(load_by_comm, load_profiles, SS, ss):
@@ -479,6 +479,20 @@ class Grid:
         for b in buslist:
             evs_bus.append((busev == b).sum())
         return buslist, evs_bus
+    
+    def reset(self):
+        """ Resets the status of the grid and of EVs
+        """
+        self.day = 0
+        self.init_load_vector(self.base_load)
+        for types in self.evs:
+            self.init_ev_vectors(types)
+            for ev in self.evs[types]:
+                ev.reset(self)
+                
+
+        
+        
         
 class EV:
     """ Basic EV model with dumb charging
@@ -548,9 +562,9 @@ class EV:
         self.tou_we = tou_we                            # Time of Use for weekend
         self.arrival_departure_data_wd = arrival_departure_data_wd
         self.arrival_departure_data_we = arrival_departure_data_we
-        self.eff_per_period = model.period_dur * self.charging_eff 
-        self.soc_eff_per_period = self.eff_per_period / self.batt_size
-        self.soc_v2geff_per_period = model.period_dur / self.batt_size / self.discharging_eff
+        
+        # DERIVED PARAMS
+        self.compute_derived_params(model)
         
         # Grid Params
         self.bus = ''
@@ -566,7 +580,14 @@ class EV:
 
         self.set_ch_vector(model)
         self.set_off_peak(model)
-        
+    
+    def compute_derived_params(self, model):    
+        """ Computes derived params that are useful
+        """
+        self.eff_per_period = model.period_dur * self.charging_eff 
+        self.soc_eff_per_period = self.eff_per_period / self.batt_size
+        self.soc_v2geff_per_period = model.period_dur / self.batt_size / self.discharging_eff
+    
     def set_dist(self, cdf_dist):
         """Returns one-way distance given by a cumulative distribution function
         The distance is limited to 120km
@@ -808,7 +829,17 @@ class EV:
             self.do_charging(model)
         else:
             self.compute_soc_end(model)
+    
+    def reset(self, model):
+        self.soc_ini = self.soc_ini * 0                 #list of SOC ini at each day (of charging session)
+        self.soc_end = self.soc_end * 0                 #list of SOC end at each day (of charging session)
+        self.energy_trip = self.energy_trip * 0         #list of energy consumed per day in trips
+        self.charged_energy = self.charged_energy * 0   # charged energy into the battery
+        self.extra_charge = self.extra_charge * 0       # extra charge needed during the day (bcs too long trips, not enough batt!)
+        self.ch_status = self.ch_status * 0             # Charging status for each day (connected or not connected)
 
+        self.set_ch_vector(model)
+        self.set_off_peak(model)
 
 class EV_Modulated(EV):
     """ Class of EV that does a flat charge over the whole period of connection (considering ToU constraints)
