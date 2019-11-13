@@ -27,13 +27,13 @@ pdfunc = (dist_function/sum(dist_function)).cumsum()
 bins_hours = np.linspace(0,24,num=25)
 
 
-def random_from_pdf(pdf, bins):
-    """Returns a random bin value given a pdf.
-    pdf has n values, and bins n+1, delimiting initial and final boundaries for each bin
+def random_from_cdf(pdf, bins):
+    """Returns a random bin value given a cdf.
+    cdf has n values, and bins n+1, delimiting initial and final boundaries for each bin
     """
     r = np.random.rand(1)
     x = int(np.digitize(r, pdf))
-    if pdf.max() > 1 or pdf.min() < 0:
+    if pdf.max() > 1.0001 or pdf.min() < 0:
         raise ValueError('pdf is not a valid probability distribution function')
     return bins[x] + np.random.rand(1) * (bins[x+1] - bins[x])
 
@@ -379,6 +379,9 @@ class Grid:
         flex_pot = sum(ev.off_peak_potential.sum() * self.period_dur
                         for key in self.evs
                         for ev in self.evs[key])
+        extra_charge = sum(ev.extra_energy.sum()
+                        for key in self.evs
+                        for ev in self.evs[key])
         ev_flex_ratio = 1-total_ev_charge / flex_pot
         max_ev_load = self.ev_load['Total'].max()
         max_load = (self.ev_load['Total'] + self.base_load).max()
@@ -386,6 +389,7 @@ class Grid:
         peak_charge = max_load / self.ss_pmax
         h_overload = ((self.ev_load['Total'] + self.base_load) > self.ss_pmax).sum() * self.period_dur
         return {'Tot_ev_charge' : total_ev_charge,
+                'Extra_charge' : extra_charge,
                 'Flex_ratio' : ev_flex_ratio,
                 'Max_ev_load' : max_ev_load,
                 'Max_base_load' : max_base_load,
@@ -489,9 +493,15 @@ class Grid:
             self.init_ev_vectors(types)
             for ev in self.evs[types]:
                 ev.reset(self)
-                
-
-        
+    
+    def set_evs_param(self, param, value, sets='all'):
+        if sets == 'all':
+            evs = self.get_evs()
+        else:
+            evs = self.evs[sets]
+        for ev in evs:
+            setattr(ev, param, value)
+            ev.compute_derived_params(self)        
         
         
 class EV:
@@ -499,8 +509,8 @@ class EV:
     """
     bins_dist = np.linspace(0, 100, num=51)
     def __init__(self, model, name, 
-                 cdf_dist_wd=0,
-                 cdf_dist_we=0, 
+                 dist_wd=0,
+                 dist_we=0, 
                  charging_power=3.6, 
                  charging_eff=0.95,
                  discharging_eff=0.95,
@@ -530,8 +540,9 @@ class EV:
         self.name = name
         # PARAMS
         # Sets distance for weekday and weekend one-way trips
-        self.dist_wd = self.set_dist(cdf_dist_wd)
-        self.dist_we = self.set_dist(cdf_dist_we)
+        # dist_wx can be a {} with either 's', 'm', 'loc' for lognorm params or with 'cdf', 'bins'
+        self.dist_wd = self.set_dist(dist_wd)
+        self.dist_we = self.set_dist(dist_we)
         # Discrete random distribution (non correlated) for battery & charging power
         if type(charging_power) is int or type(charging_power) is float:
             self.charging_power = charging_power
@@ -574,8 +585,8 @@ class EV:
         self.soc_ini = np.zeros(model.ndays)        #list of SOC ini at each day (of charging session)
         self.soc_end = np.zeros(model.ndays)        #list of SOC end at each day (of charging session)
         self.energy_trip = np.zeros(model.ndays)    #list of energy consumed per day in trips
-        self.charged_energy = np.zeros(model.ndays) # charged energy into the battery
-        self.extra_charge = np.zeros(model.ndays)   # extra charge needed during the day (bcs too long trips, not enough batt!)
+        self.charged_energy = np.zeros(model.ndays) # charged energy into the battery [kWh]
+        self.extra_energy = np.zeros(model.ndays)   # extra charge needed during the day (bcs too long trips, not enough batt!) [kWh]
         self.ch_status = np.zeros(model.ndays)      # Charging status for each day (connected or not connected)
 
         self.set_ch_vector(model)
@@ -588,21 +599,32 @@ class EV:
         self.soc_eff_per_period = self.eff_per_period / self.batt_size
         self.soc_v2geff_per_period = model.period_dur / self.batt_size / self.discharging_eff
     
-    def set_dist(self, cdf_dist):
+    def set_dist(self, data_dist):
         """Returns one-way distance given by a cumulative distribution function
         The distance is limited to 120km
         """
-        if type(cdf_dist) == int:
-            #means no pdf has been given, using default values lognormal distribution
-            # Based on O.Borne thesis (ch.3), avg trip +-19km
-            d = np.random.lognormal(2.75, 0.736, 1)
-            #check that distance is under dmax = 120km, so it can be done with one charge
-            while d > 120:
-                d = np.random.lognormal(2.75, 0.736, 1)
-            return d
-        else:  
-            return random_from_pdf(cdf_dist, bins_dist)
-        
+        # Default values for 
+        # Based on O.Borne thesis (ch.3), avg trip +-19km
+        m=2.75
+        s=0.736
+        if type(data_dist) == dict:
+            if 's' in data_dist:
+                s = data_dist['s']
+                m = data_dist['m']
+            if 'cdf' in data_dist:
+                cdf = data_dist['cdf']
+                if 'bins' in data_dist:
+                    bins_dist = data_dist['bins']
+                else:
+                    bins_dist = np.linspace(0, 100, num=51)
+                return random_from_cdf(cdf, bins_dist)
+            
+        d = np.random.lognormal(m, s, 1)
+        #check that distance is under dmax = 120km, so it can be done with one charge
+        while d > 120:
+            d = np.random.lognormal(m, s, 1)
+        return d
+    
     def set_discrete_random_data(self, data_values, values_prob):
         """ Returns a random value from a set data_values, according to the probability vector values_prob
         """
@@ -656,10 +678,12 @@ class EV:
         in the current session.
         """
         # TODO: extend to add stochasticity
-        if (self.dist_wd if model.days[model.day] < 5 else self.dist_we) * self.n_trips * self.driving_eff > self.batt_size:
+        dist = (self.dist_wd if model.days[model.day] < 5 else self.dist_we)
+        if dist * self.n_trips * self.driving_eff > self.batt_size:
             #This means that home-work trip is too long to do it without extra charge, 
             # so forced work charging (i.e one trip)
-            self.energy_trip[model.day] = (self.dist_wd if model.days[model.day] < 5 else self.dist_we) * self.driving_eff
+            self.energy_trip[model.day] = dist * self.driving_eff
+            self.extra_energy[model.day] = (self.n_trips - 1) * self.energy_trip[model.day]
         else:
             extra_trip = 0 
             if np.random.rand(1) < self.extra_trip_proba:
@@ -680,7 +704,7 @@ class EV:
         else:
             self.soc_ini[model.day] = self.soc_end[model.day-1] - self.energy_trip[model.day] / self.batt_size
         if self.soc_ini[model.day] < 0.05:                          # To correct some negative SOCs
-            self.extra_charge[model.day] = 0.05 - self.soc_ini[model.day]
+            self.extra_energy[model.day] += (0.05 - self.soc_ini[model.day]) * self.batt_size
             self.soc_ini[model.day] = 0.05
             
     def define_charging(self, model):
@@ -739,7 +763,7 @@ class EV:
             tend = int((self.departure + 24) * model.periods_hour)    
         else:
             tend = int(self.departure *  model.periods_hour)
-        idx_tini = delta + tini
+        idx_tini = max([0, delta + tini])
         idx_tend = min([delta + tend, model.periods-1])
         
         if idx_tini >= idx_tend:
@@ -750,6 +774,7 @@ class EV:
         potential[0] = ((model.period_dur - self.arrival % model.period_dur ) / 
                  model.period_dur * self.charging_power)
         # And correct for departure period
+        
         potential[-1] = (self.departure % model.period_dur / 
                  model.period_dur * self.charging_power)
         
@@ -774,7 +799,7 @@ class EV:
         # charging power
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
         
-        # chssarged_energy
+        # charged_energy
         self.charged_energy[model.day] = (soc[-1]-soc[0]) * self.batt_size
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
@@ -835,7 +860,7 @@ class EV:
         self.soc_end = self.soc_end * 0                 #list of SOC end at each day (of charging session)
         self.energy_trip = self.energy_trip * 0         #list of energy consumed per day in trips
         self.charged_energy = self.charged_energy * 0   # charged energy into the battery
-        self.extra_charge = self.extra_charge * 0       # extra charge needed during the day (bcs too long trips, not enough batt!)
+        self.extra_energy = self.extra_energy * 0       # extra charge needed during the day (bcs too long trips, not enough batt!)
         self.ch_status = self.ch_status * 0             # Charging status for each day (connected or not connected)
 
         self.set_ch_vector(model)
