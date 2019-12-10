@@ -22,7 +22,7 @@ def saveDictHist(fold, out_fn, DictHist, GeoRefs, hist_headers):
             out_writer.writerow([key] + GeoRefs[key][3:] + DictHist[key].tolist())
 
 
-# Reading Tgeo
+# Reading Tgeo - it has the information required for each commune
 folder = 'c:/user/U546416/Documents/PhD/Data/Mobilité/'
 folderMod = r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Base\\'
 data_file = 'data-flux-mob-dreal.txt'

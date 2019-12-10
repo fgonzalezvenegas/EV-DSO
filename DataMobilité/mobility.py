@@ -11,7 +11,7 @@ from matplotlib import pyplot as plt
 #import pandas as pd
 
 def distance2cities(npoints, size1, size2, d):
-    """ Returns npoints points of distance, given a random distr of initial/final
+    """ Returns npoints points of distance, given a uniform random distr of initial/final
     points within a given cities of size (t1/t2), at distance d
     """
     p1 = (np.random.rand(npoints, 2) -0.5) * np.sqrt(size1) 
