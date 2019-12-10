@@ -630,19 +630,19 @@ class EV:
         """
         return np.random.choice(data_values, p=values_prob)
         
-    def set_arrival_departure(self, pdf_arr = 0, pdf_dep = 0, 
+    def set_arrival_departure(self, cdf_arr = 0, cdf_dep = 0, 
                               mu_arr = 18, mu_dep = 8, 
                               std_arr = 2, std_dep = 2):
         """ Sets arrival and departure times
         """
-        if type(pdf_arr) == int:
+        if type(cdf_arr) == int:
             self.arrival = np.random.randn(1) * std_arr + mu_arr
         else:
-            self.arrival = random_from_pdf(pdf_arr, bins_hours)
-        if type(pdf_dep) == int:
+            self.arrival = random_from_cdf(cdf_arr, bins_hours)
+        if type(cdf_dep) == int:
             self.departure = np.random.randn(1) * std_dep + mu_dep
         else:
-            self.departure = random_from_pdf(pdf_dep, bins_hours)
+            self.departure = random_from_cdf(cdf_dep, bins_hours)
         self.dt = (self.departure - self.arrival if self.departure > self.arrival
                        else self.departure + 24 - self.arrival)
         
@@ -741,10 +741,13 @@ class EV:
                 # Charging because it is needed for expected next day
                 return True
             if self.soc_ini[model.day] >= self.max_soc:
+                # Not charging beceause EV has more than the max SOC
                 return False
             if self.n_if_needed >=100:
                 # Deterministic case, where if it is not needed, no prob of charging
                 return False
+            # else: Probabilistic charging: higher proba if low SOC
+            # n_if_needed == 1 is a linear probability
             p = np.random.rand(1)
             p_cut = ((self.max_soc - self.soc_ini[model.day]) / (self.max_soc - min_soc_trip)) ** self.n_if_needed
             return p < p_cut
