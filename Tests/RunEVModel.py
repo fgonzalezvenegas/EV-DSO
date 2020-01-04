@@ -20,7 +20,8 @@ dist_function[10:15] = [0, 0, 0 , 0 , 0]
 pdfunc = (dist_function/sum(dist_function)).cumsum()
 dlabels =['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 
-#%% Computes 4 combinations of dumb charging 
+#%% Computes 4 combinations of dumb charging
+n_ev=1000
 ev_data2 = {'EV Load': {'type' : 'dumb',
                  'n_ev' : 1000,
                  'other': {
@@ -39,14 +40,12 @@ ev_data3 = {'dumb': {'type' : 'dumb',
                  'other': {
                          'charging_type': 'all_days',
                          'charging_power' : 7.2}}}
-grid1 = evmodel.Grid(ev_data1, ndays=ndays, step=step)
-grid1.do_days()
-grid2 = evmodel.Grid(ev_data2, ndays=ndays, step=step)
-grid2.do_days()
-grid3 = evmodel.Grid(ev_data3, ndays=ndays, step=step)
-grid3.do_days()
-grid4 = evmodel.Grid(ev_data4, ndays=ndays, step=step)
-grid4.do_days()
+names=['if3.6','all3.6', 'if7.2', 'all7.2']
+grids = [evmodel.Grid(ndays=ndays, step=step, name=i) for i in names]
+# create evs
+for i in range(4):
+    grids[i].add_evs(nameset='evs', n_evs=nev, ev_type=types[i], **ev_data[i])
+    
 #f, ([ax1, ax2],  [ax3, ax4]) = plt.subplots(2,2)
 f, (ax1, ax2) = plt.subplots(1, 2)
 ylim = 3.7*1000

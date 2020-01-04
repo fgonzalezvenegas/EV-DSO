@@ -27,30 +27,18 @@ print('SS Data')
 SS = pd.read_csv('c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau/postes_source.csv', 
                  engine='python', index_col=0)
     
-SS_polys = pd.read_csv('c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau/postes_source_polygons_dec2019.csv', 
-                 engine='python', index_col=0)
+polygons_ss = util.load_polygons_SS()
 
 #iris_full = pd.read_csv(r'C:\Users\u546416\Downloads\consommation-electrique-par-secteur-dactivite-iris.csv', 
 #                   engine='python', index_col=2, delimiter=';')
 print('Polygons')
-iris_poly = pd.read_csv(r'c:\user\U546416\Documents\PhD\Data\DataGeo\IRIS_all_geo_2016.csv',
-                        engine='python', index_col=0)
+polygons = util.load_polygons_iris()
+
 print('Load Profiles')
 # Load conso profiles data (in pu (power, not energy))
 load_profiles = pd.read_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Conso\conso_all_pu.csv', 
                            engine='python', delimiter=',', index_col=0)
-#%% Constructing polygons
-print('Constructing polygons')
-print('IRIS polygons')
-iris_poly.Polygon = iris_poly.Polygon.apply(lambda x: eval(x))
-polygons = util.do_polygons(iris_poly, plot=True)
-#test
-util.plot_polygons([pp for p in polygons.values() for pp in p])
-print('SS polygons')
-SS_polys.Polygon = SS_polys.Polygon.apply(lambda x: [eval(x)])
-polygons_ss = util.do_polygons(SS_polys, plot=True)
-#test
-print('Finished')
+
 
 #%% Analysis of max load using load curves
 print('Computing max load analysis')
@@ -85,31 +73,31 @@ ax.set_xlabel('Max load [pu of SS]')
 ax.grid()
 ax.set_title('Distribution of max load of Substation')
 
-#% Plot map of Pmax[pu]
+#%% Plot map of Pmax[pu]
 palette = ['lightgreen','y','coral','r','maroon']
 ranges = [0,0.5,0.6,0.7,0.8,0.9,1]
-f, ax = plt.subplots()
-polyss = PatchCollection([polygons_ss[ss][0] for ss in polygons_ss
-                          if len(polygons_ss[ss])>0], 
-                         facecolors=[palette[max(0,int((SS_load['SSCharge[pu]'][ss]-0.5) // 0.1))]
-                                     for ss in polygons_ss
-                                     if len(polygons_ss[ss])>0], 
-                         edgecolors='k', linestyle='--', linewidth=0.15)
-ax.add_collection(polyss)
-util.aspect_carte_france(ax, palette=palette, ranges=ranges, label_middle='%<x<', label_end='%')
 
-#% Pmax[pu] pour IdF
-deps_idf = [75, 77, 78, 91, 92, 93,  94, 95]
-ssidf = SS[(SS.GRD == 'Enedis') & (SS.Departement.isin(deps_idf))].index
-f, ax = plt.subplots()
-polyss = PatchCollection([polygons_ss[ss][0] for ss in ssidf
-                          if len(polygons_ss[ss])>0], 
-                         facecolors=[palette[max(0,int((SS_load['SSCharge[pu]'][ss]-0.5) // 0.1))]
-                                     for ss in ssidf
-                                     if len(polygons_ss[ss])>0], 
-                         edgecolors='k', linestyle='--', linewidth=0.15)
-ax.add_collection(polyss)
-util.aspect_carte_france(ax, palette=palette, ranges=ranges, label_middle='%<x<', label_end='%', cns='idf')
+polyss = util.list_polygons(polygons_ss, polygons_ss.keys())
+colorss = [palette[max(0,int((SS_load['SSCharge[pu]'][ss]-0.5) // 0.1))]
+            for ss in polygons_ss
+            for p in polygons_ss[ss]]
+    
+ssidf = SS[(SS.GRD == 'Enedis') & (SS.Departement.isin(util.deps_idf))].index
+polys_idf = util.list_polygons(polygons_ss, ssidf)
+colors_idf = [palette[max(0,int((SS_load['SSCharge[pu]'][ss]-0.5) // 0.1))]
+            for ss in ssidf
+            for p in polygons_ss[ss]]
+#%%
+labels = [str(ranges[i]) + '<PeakLoad<' + str(ranges[i+1]) for i in range(len(ranges)-1)]
+ax1 = util.plot_polygons(polyss, facecolors=colorss, edgecolors='k', linewidth=0.2)
+ax2 = util.plot_polygons(polys_idf, facecolors=colors_idf, edgecolors='k', linewidth=0.2)
+util.aspect_carte_france(ax1, palette=palette, labels=labels)
+util.aspect_carte_france(ax2, palette=palette, labels=labels, cns='idf')
 #%% Save
-SS_profile.to_csv('SS_profiles.csv')
-SS_load.to_excel('SS_load.xlsx')
+#SS_profile.to_csv('SS_profiles.csv') #This is (way) too heavy (600MB, over 45s to load)
+#SS_load.to_excel('SS_load.xlsx')
+
+#%% Saving profiles one by one in a dedicated folder
+folder = r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Conso\SS_profiles\\'
+for ss in SS_profile:
+    SS_profile[[ss]].to_csv(folder + ss + '.csv')

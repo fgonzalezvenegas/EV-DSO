@@ -18,6 +18,8 @@ import numpy as np
 from matplotlib import pyplot as plt
 import pandas as pd
 import datetime as dt
+import util
+import scipy.stats as stats
 
 bins_dist = np.linspace(0, 100, num=51)
 dist_function = np.sin(bins_dist[:-1]/ 100 * np.pi * 2) + 1
@@ -38,30 +40,28 @@ def random_from_cdf(pdf, bins):
     return bins[x] + np.random.rand(1) * (bins[x+1] - bins[x])
 
 
-def load_conso_ss_data(folder = 'c:/user/U546416/Documents/PhD/Data/Mobilité/',
-                       folder_load = 'Data_Traitee/Conso/',
-                       folder_grid = 'Data_Traitee/Reseau/',
-                       file_load_comm = 'consommation-electrique-par-secteur-dactivite-commune-red.csv',
-                       file_load_profile = 'conso_all_pu.csv',
-                       file_ss = 'postes_source.csv'):
-    """ load data for conso and substations
-    """ 
-    # Load load by commune data
-    load_by_comm = pd.read_csv(folder + folder_load + file_load_comm, 
-                               engine='python', delimiter=';', index_col=0)
-    load_by_comm.index = load_by_comm.index.astype(str)
-    load_by_comm.index = load_by_comm.index.map(lambda x: x if len(x) == 5 else '0' + x)
-    # Load load profiles data (in pu (power, not energy))
-    load_profiles = pd.read_csv(folder + folder_load + file_load_profile, 
-                               engine='python', delimiter=',', index_col=0)
-    # drop ENT profile that's not useful
-    load_profiles = load_profiles.drop('ENT', axis=1)
-    # Load Trafo data
-    SS = pd.read_csv(folder + folder_grid + file_ss, 
-                               engine='python', delimiter=',', index_col=0)
-    # parse communes
-    SS.Communes = SS.Communes.apply(lambda x: eval(x) if x==x else [])
-    return load_by_comm, load_profiles, SS
+#def load_conso_ss_data(folder = 'c:/user/U546416/Documents/PhD/Data/Mobilité/',
+#                       folder_load = 'Data_Traitee/Conso/',
+#                       folder_grid = 'Data_Traitee/Reseau/',
+#                       file_load_comm = 'consommation-electrique-par-secteur-dactivite-commune-red.csv',
+#                       file_load_profile = 'conso_all_pu.csv',
+#                       file_ss = 'postes_source.csv'):
+#    """ load data for conso and substations
+#    """ 
+#    # Load load by commune data
+#    load_by_comm = pd.read_csv(folder + folder_load + file_load_comm, 
+#                               engine='python', delimiter=';', index_col=0)
+#    load_by_comm.index = load_by_comm.index.astype(str)
+#    load_by_comm.index = load_by_comm.index.map(lambda x: x if len(x) == 5 else '0' + x)
+#    # Load load profiles data (in pu (power, not energy))
+#    load_profiles = pd.read_csv(folder + folder_load + file_load_profile, 
+#                               engine='python', delimiter=',', index_col=0)
+#    # drop ENT profile that's not useful
+#    load_profiles = load_profiles.drop('ENT', axis=1)
+#    # Load Trafo data
+#    SS = pd.read_csv(folder + folder_grid + file_ss, 
+#                               engine='python', delimiter=',', index_col=0)
+#    return load_by_comm, load_profiles, SS
 
 
 def load_hist_data(folder=r'c:/user/U546416/Documents/PhD/Data/Mobilité/', 
@@ -86,19 +86,19 @@ def load_hist_data(folder=r'c:/user/U546416/Documents/PhD/Data/Mobilité/',
 #    return pd.DataFrame({c: np.asarray(hist.loc[c,cols_h]) for c in comms}).transpose()
     
 
-def compute_load_from_ss(load_by_comm, load_profiles, SS, ss):
-    """Returns the load profile for the substation ss, 
-    where Substation data is stored in SS DataFrame (namely communes assigned) 
-    and load data in load_profiles and load_by_comm
-    """
-    if not ss in SS.Communes:
-        raise ValueError('Invalid Substation %s' %ss)
-    comms = SS.Communes[ss]
-    try: 
-        factors = load_by_comm.loc[comms, load_profiles.columns].sum() / (8760)
-    except:
-        factors = pd.DataFrame({key: 0 for key in load_profiles.columns})
-    return load_profiles * factors
+#def compute_load_from_ss(load_by_comm, load_profiles, SS, ss):
+#    """Returns the load profile for the substation ss, 
+#    where Substation data is stored in SS DataFrame (namely communes assigned) 
+#    and load data in load_profiles and load_by_comm
+#    """
+#    if not ss in SS.Communes:
+#        raise ValueError('Invalid Substation %s' %ss)
+#    comms = SS.Communes[ss]
+#    try: 
+#        factors = load_by_comm.loc[comms, load_profiles.columns].sum() / (8760)
+#    except:
+#        factors = pd.DataFrame({key: 0 for key in load_profiles.columns})
+#    return load_profiles * factors
 
 
 def get_max_load_week(load, step=30, buffer_before=0, buffer_after=0):
@@ -113,18 +113,6 @@ def get_max_load_week(load, step=30, buffer_before=0, buffer_after=0):
     dini = idmax - dt.timedelta(days=dwmax+buffer_before, hours=idmax.hour, minutes=idmax.minute)
     dend = dini + dt.timedelta(days=7+buffer_after+buffer_before) #- dt.timedelta(minutes=30)
     return load.loc[dini:dend]
-
-
-def interpolate(data, step=15):
-    """ Returns the data with a greater time resolution, by interpolating it
-    """
-    if type(data.index[0]) == str:
-        fmtdt = '%Y-%m-%d %H:%M:%S%z'
-        #parse!
-        data.index = data.index.map(lambda x: dt.datetime.strptime(''.join(x.rsplit(':',1)), fmtdt))
-    if (data.index[1]-data.index[0])/dt.timedelta(minutes=step) % 1>0:
-        raise ValueError('Invalid step, it should be a divisor of data step')
-    return data.asfreq(freq=dt.timedelta(minutes=step)).interpolate()
 
     
 class Grid:
@@ -159,7 +147,7 @@ class Grid:
         self.day = 0
         self.days = [(i + init_day)%7 for i in range(ndays + 1)]
         # times is an array that contains of len=nperiods, where for period i:
-        # times[i] = [day, hour, #ofweekday]
+        # times[i] = [day, hour, day_of_week] ** day_of_week 0 == monday
         self.times = [[i, j, (i+init_day)%7] 
                         for i in range(ndays) 
                         for j in np.arange(0,24,self.period_dur)]
@@ -186,6 +174,9 @@ class Grid:
                     'mod': EV_Modulated,
                     'randstart': EV_RandStart,
                     'reverse': EV_DumbReverse}
+        if not (ev_type in ev_types):
+            raise ValueError('Invalid EV type "{}" \
+                             Accepted types are: "dumb", "mod", "randstart", "reverse"'.format(ev_type))
         ev_fx = ev_types[ev_type]
        
         evset = []
@@ -251,29 +242,28 @@ class Grid:
         """ Computes aggregated ev load per bus and ev type
         """
         load_ev = {}
-        print(load_ev)
         for types in self.evs:
             for ev in self.evs[types]:
                 if (types, ev.bus) in load_ev:
-                    load_ev[types, ev.bus] += ev.charging
+                    load_ev[types, ev.bus] += ev.charging * 1
                 else:
-                    load_ev[types, ev.bus] = ev.charging *1
+                    load_ev[types, ev.bus] = ev.charging * 1
         return load_ev
     
     def compute_agg_data(self) :    
-        """ Computes aggregated charging per type of EV and then total for the grid 
+        """ Computes aggregated charging per type of EV and then total for the grid in MW
         """
         if self.verbose:
             print('Grid {}: Computing aggregated data'.format(self.name))
         for types in self.evs:
             for ev in self.evs[types]:
-                self.ev_potential[types] += ev.potential
-                self.ev_load[types] += ev.charging
-                self.ev_off_peak_potential[types] += ev.off_peak_potential
-                self.ev_up_flex[types] += ev.up_flex
-                self.ev_dn_flex[types] += ev.dn_flex
-                self.ev_mean_flex[types] += ev.mean_flex_traj
-                self.ev_batt[types] += ev.soc * ev.batt_size
+                self.ev_potential[types] += ev.potential / util.k
+                self.ev_load[types] += ev.charging / util.k
+                self.ev_off_peak_potential[types] += ev.off_peak_potential / util.k
+                self.ev_up_flex[types] += ev.up_flex / util.k
+                self.ev_dn_flex[types] += ev.dn_flex / util.k
+                self.ev_mean_flex[types] += ev.mean_flex_traj / util.k
+                self.ev_batt[types] += ev.soc * ev.batt_size / util.k
         self.ev_potential['Total'] = sum([self.ev_potential[types] for types in self.evs])
         self.ev_load['Total'] = sum([self.ev_load[types] for types in self.evs])
         self.ev_off_peak_potential['Total'] = sum([self.ev_off_peak_potential[types] for types in self.evs])
@@ -293,59 +283,74 @@ class Grid:
         if agg_data:
             self.compute_agg_data()
         
-    def plot_ev_load(self, opp=True, **plot_params):
+    def set_aspect_plot(self, ax, day_ini=0, days=-1, **plot_params):
+        """ Set the aspect of the plot to fit in the specified timeframe and adds Week names as ticks
+        """
+        x = [t[0] * 24 + t[1] for t in self.times]
+        
+        if days == -1:
+            days = self.ndays
+        days = min(self.ndays - day_ini, days)
+        t0 = self.periods_day * day_ini
+        tf = self.periods_day * (days + day_ini)
+        
+        daylbl = [util.dsnms[self.times[i][2]] for i in np.arange(t0, tf, self.periods_day)]
+        
+        ax.set_xlabel('Time [days]')
+        if 'title' in plot_params:
+            ax.set_title(plot_params['title'])
+        else:
+            ax.set_title('Load at {}'.format(self.name))
+        if 'ylim' in plot_params:
+            ax.set_ylim(top=plot_params['ylim'])
+        ax.set_ylim(bottom=0)
+        ax.set_xticks(np.arange(self.ndays) * 24)
+        ax.set_xticklabels(daylbl)
+        ax.grid(axis='x')
+        ax.set_xlim(x[t0], x[tf-1])
+        
+        ax.legend(loc=1)
+        
+    def plot_ev_load(self, day_ini=0, days=-1, opp=False, **plot_params):
         """ Stacked plot of EV charging load
         """
-        load = [self.ev_load[types] for types in self.types_evs]
+        load = np.array([self.ev_load[types] for types in self.types_evs])
         tot = 'Total'
         x = [t[0] * 24 + t[1] for t in self.times]
         if not 'ax' in plot_params:
             f, ax = plt.subplots(1,1)
         else:
             ax = plot_params['ax']
+            del plot_params['ax']
         ax.stackplot(x, load, labels=self.types_evs)
         if opp:
             ax.plot(x, self.ev_potential[tot], label='EV potential')
             if not (self.ev_potential[tot] == self.ev_off_peak_potential[tot]).all():
                 ax.plot(x, self.ev_off_peak_potential[tot], label='EV off-peak potential')
-        ax.legend(loc=1)
-        ax.set_ylabel('Power [kW]')
-        ax.set_xlabel('Time [h]')
-        if 'title' in plot_params:
-            ax.set_title(plot_params['title'])
-        if 'ylim' in plot_params:
-            ax.set_ylim(top=plot_params['ylim'])
-        ax.grid(axis='x')
-        ax.set_xticks(np.arange(self.ndays) * 24)
-        ax.set_xlim([0, self.ndays * 24])
-   
+        ax.set_ylabel('Power [MW]')
+
+        self.set_aspect_plot(ax, day_ini=day_ini, days=days, **plot_params)
+        return ax
      
-    def plot_tot_load(self, day_ini=0, days=-1, **plot_params):
+    def plot_total_load(self, day_ini=0, days=-1, **plot_params):
         """ Stacked plot of EV charging load + base load
         """
         tot = 'Total'
-        t0 = self.periods_day * day_ini
-        tf = self.periods_day * (days + day_ini)
         x = [t[0] * 24 + t[1] for t in self.times]
         if not 'ax' in plot_params:
             f, ax = plt.subplots(1,1)
         else:
             ax = plot_params['ax']
-        ax.stackplot(x[t0:tf], [self.base_load[t0:tf], self.ev_load[tot][t0:tf]/1000], labels=['Base Load', 'EV Load'])
+            del plot_params['ax']
+        ax.stackplot(x, [self.base_load, self.ev_load[tot]], labels=['Base Load', 'EV Load'])
         ax.set_ylabel('Power [MW]')
-        ax.set_xlabel('Time [h]')
         if self.ss_pmax > 0:
             ax.axhline(self.ss_pmax, label='Pmax', linestyle='--', color='red')
-        if 'title' in plot_params:
-            ax.set_title(plot_params['title'])
-        if 'ylim' in plot_params:
-            ax.set_ylim(top=plot_params['ylim'])
-        ax.grid(axis='x')
-        ax.set_xticks(np.arange(self.ndays) * 24)
-        ax.set_xlim([0, self.ndays * 24])
-        ax.legend(loc=1)
+            
+        self.set_aspect_plot(ax, day_ini=day_ini, days=days, **plot_params)
+        return ax
         
-    def plot_flex_pot(self, trajectory=False, **plot_params):
+    def plot_flex_pot(self, day_ini=0, days=-1, trajectory=False, **plot_params):
         """ Plot of aggregated flex
         """
         tot = 'Total'
@@ -360,46 +365,58 @@ class Grid:
             ax.plot(x, self.ev_batt[tot], label='Real trajectory')
         else:
             ax.plot(x, self.ev_mean_flex[tot], label='Mean flexible trajectory', linestyle='--')
-        ax.set_ylabel('EV energy storage [kWh]')
-        ax.set_xlabel('Time [h]')
-        if 'title' in plot_params:
-            ax.set_title(plot_params['title'])
-        if 'ylim' in plot_params:
-            ax.set_ylim(top=plot_params['ylim'])
-        ax.set_ylim(bottom=0)
-        ax.grid(axis='x')
-        ax.set_xticks(np.arange(self.ndays) * 24)
-        ax.set_xlim([0, self.ndays * 24])
-        ax.legend(loc=1)
+        ax.set_ylabel('EV energy storage [MWh]')
         
+        self.set_aspect_plot(ax, day_ini=day_ini, days=days, **plot_params)
+        return ax
+    
     def get_global_data(self):
         """ Some global info
         """
-        total_ev_charge = self.ev_load['Total'].sum() * self.period_dur
-        flex_pot = sum(ev.off_peak_potential.sum() * self.period_dur
-                        for key in self.evs
-                        for ev in self.evs[key])
+        total_ev_charge = self.ev_load['Total'].sum() * self.period_dur #MWh
+        flex_pot = self.ev_off_peak_potential['Total'].sum() * self.period_dur
         extra_charge = sum(ev.extra_energy.sum()
-                        for key in self.evs
-                        for ev in self.evs[key])
+                            for ev in self.get_evs()) / util.k
         ev_flex_ratio = 1-total_ev_charge / flex_pot
         max_ev_load = self.ev_load['Total'].max()
         max_load = (self.ev_load['Total'] + self.base_load).max()
         max_base_load = self.base_load.max()
         peak_charge = max_load / self.ss_pmax
         h_overload = ((self.ev_load['Total'] + self.base_load) > self.ss_pmax).sum() * self.period_dur
-        return {'Tot_ev_charge' : total_ev_charge,
-                'Extra_charge' : extra_charge,
+        return {'Tot_ev_charge_MWh' : total_ev_charge,
+                'Extra_charge_MWh' : extra_charge,
                 'Flex_ratio' : ev_flex_ratio,
-                'Max_ev_load' : max_ev_load,
-                'Max_base_load' : max_base_load,
-                'Max_load' : max_load,
-                'Peak_ss_charge' : peak_charge,
+                'Max_ev_load_MW' : max_ev_load,
+                'Max_base_load_MW' : max_base_load,
+                'Max_load_MW' : max_load,
+                'Peak_ss_charge_pu' : peak_charge,
                 'Hours_overload' : h_overload
                 }
+    
+    def get_ev_data(self):
+        """ EV charge data per subset
+        """
+        types = [t for t in self.evs]
+        charge = [self.ev_load[t].sum() * self.period_dur 
+                  for t in types]
+        nevs = [len(self.evs[t])
+                for t in types]
+        extra_charge = [sum(ev.extra_energy.sum()
+                            for ev in self.evs[t]) / util.k
+                        for t in types]
+        flex_ratio = [1 - self.ev_load[t].sum() / self.ev_off_peak_potential[t].sum() 
+                    for t in types]
+        max_load = [self.ev_load[t].max() 
+                    for t in types]
+        return {'EV_sets': types,
+                'n_EVs': nevs,
+                'EV_charge_MWh': charge,
+                'extra_charge' : extra_charge,
+                'Flex_ratio': flex_ratio,
+                'max_load': max_load}
         
         
-    def do_dist_hist(self, weekday = True, **plot_params):
+    def do_dist_hist(self, weekday=True, **plot_params):
         """ Do histogram of distances
         """
         if not 'ax' in plot_params:
@@ -408,7 +425,10 @@ class Grid:
             ax = plot_params['ax']
         d = np.asarray([(ev.dist_wd if weekday else ev.dist_we) for types in self.evs
                                 for ev in self.evs[types]])
+        avg= np.mean(d)
         ax.hist(d, bins=np.arange(0,100,2))
+        ax.axvline(avg, 'r')
+        ax.text(x=avg+1, y=max(d)*0.75, s='Average one-way trip distance {} km'.format(np.round(avg,decimals=1)))
         ax.set_xlim([0,100])
         ax.set_title('Histogram of trip distances')
         ax.set_xlabel('km')
@@ -502,6 +522,8 @@ class Grid:
         for ev in evs:
             setattr(ev, param, value)
             ev.compute_derived_params(self)        
+#    
+#    def save_data(self, micro=False, macro=True, ):
         
         
 class EV:
@@ -514,7 +536,7 @@ class EV:
                  charging_power=3.6, 
                  charging_eff=0.95,
                  discharging_eff=0.95,
-                 charging_type='all_days',
+                 charging_type='if_needed',
                  tou_ini=0,
                  tou_end=0,
                  tou_we=False,
@@ -564,8 +586,12 @@ class EV:
         self.n_trips = 2                                # Number of trips per day (Go and come back)
         self.extra_trip_proba = extra_trip_proba        # probability of extra trip
         if not charging_type in ['if_needed', 'if_needed_sunday', 'all_days', 'if_needed_prob', 'weekdays']:
-            ValueError('Invalid charging type %s' %charging_type)
+            ValueError('Invalid charging type %s' %charging_type) 
         self.charging_type = charging_type              # Charging behavior (every day or not)
+        if charging_type in ['if_needed', 'if_needed_prob']:
+            self.forced_day = np.random.randint(low=0,high=3,size=1)+4
+        elif charging_type == 'if_needed_sunday':
+            self.forced_day = 6
         self.range_anx_factor = range_anx_factor        # Range anxiety factor for "if needed" charging
         self.n_if_needed = n_if_needed                  # Factor for probabilitic "if needed" charging. High means low plug in rate, low means high plug in rate
         self.tou_ini = tou_ini                          # Time of Use (low tariff) start time (default=0) 
@@ -605,12 +631,15 @@ class EV:
         """
         # Default values for 
         # Based on O.Borne thesis (ch.3), avg trip +-19km
-        m=2.75
         s=0.736
+        scale=np.exp(2.75)
+        loc=0
         if type(data_dist) == dict:
             if 's' in data_dist:
                 s = data_dist['s']
-                m = data_dist['m']
+                loc = data_dist['loc']
+                scale = data_dist['scale']
+                return stats.lognorm.rvs(s, loc, scale, 1)
             if 'cdf' in data_dist:
                 cdf = data_dist['cdf']
                 if 'bins' in data_dist:
@@ -619,10 +648,10 @@ class EV:
                     bins_dist = np.linspace(0, 100, num=51)
                 return random_from_cdf(cdf, bins_dist)
             
-        d = np.random.lognormal(m, s, 1)
+        d = stats.lognorm.rvs(s, loc, scale, 1)
         #check that distance is under dmax = 120km, so it can be done with one charge
         while d > 120:
-            d = np.random.lognormal(m, s, 1)
+            d = stats.lognorm.rvs(s, loc, scale, 1)
         return d
     
     def set_discrete_random_data(self, data_values, values_prob):
@@ -707,7 +736,7 @@ class EV:
             self.extra_energy[model.day] += (0.05 - self.soc_ini[model.day]) * self.batt_size
             self.soc_ini[model.day] = 0.05
             
-    def define_charging(self, model):
+    def define_charging_status(self, model):
         """ Defines charging status for the session. 
         True means it will charge this session
         """
@@ -731,14 +760,11 @@ class EV:
 #            return False
         if self.charging_type in ['if_needed', 'if_needed_sunday']:
         # Enough kWh in batt to do next trip?
-            if self.charging_type == 'if_needed' and model.days[model.day] in model.weekends:
-                #Force charging on weekend
-                return True
-            if self.charging_type == 'if_needed_sunday' and model.days[model.day] == 6:
-                #Force charging only on sundays
+            if model.days[model.day] == self.forced_day:
+                # Force charging for this EV in this day of the week
                 return True
             if (self.soc_ini[model.day]  < min_soc_trip):
-                # Charging because it is needed for expected next day
+                # Charging because it is needed for expected trips of next day
                 return True
             if self.soc_ini[model.day] >= self.max_soc:
                 # Not charging beceause EV has more than the max SOC
@@ -852,7 +878,7 @@ class EV:
         self.compute_energy_trip(model)
         self.compute_soc_ini(model)
         # Defines if charging is needed
-        self.ch_status[model.day] = self.define_charging(model)
+        self.ch_status[model.day] = self.define_charging_status(model)
         if self.ch_status[model.day]:
             self.do_charging(model)
         else:

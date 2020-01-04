@@ -9,6 +9,67 @@ import matplotlib.patches as ptc
 #import polygons as pg
 import matplotlib.patheffects as pe
 #import assign_ss_modif as ass_ss
+import scipy.stats as stats
+import datetime as dt
+
+# PARAMS
+
+# Constants
+k = 1e3
+M = 1e6
+
+daysnames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+dsnms = ['Mon', 'Tues', 'Wed', 'Thur', 'Fri', 'Sat', 'Sun']
+
+# For plotting
+deps_idf = [75, 77, 78, 91, 92, 93,  94, 95]
+cns_idf = ['Paris', 'Versailles', 'Évry', 'Meaux', 'Nemours', 'Cergy', 'Étampes', 'Provins']
+latlons_idf = [[2.3424567382662334, 48.859626443036575],
+         [2.131139599462395, 48.813017693582793],
+         [2.4419262056107969, 48.632343164682723],
+         [2.9197438849044732, 48.952766254606502],
+         [2.7070194793010449, 48.26850934641633],
+         [2.0698102422679203, 49.037687672577924],
+         [2.1386667699798143, 48.435164427848107],
+         [3.2930400953107446, 48.544799959855652]]
+cns_fr = ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Bordeaux', 'Nantes', 'Lille', 'Rennes']
+latlons_fr = [[2.3424567382662334, 48.859626443036575],
+         [5.3863214053108095, 43.300743046351528],
+         [4.8363757561790415, 45.771993345448962],
+         [1.4194663657069806, 43.58313856938689],
+         [-0.58251346635799961, 44.856834056176488],
+         [-1.5448118357936005, 47.227505954238453],
+         [2.98834511866088, 50.651686273910592],
+         [-1.6966383042920521, 48.083113659214533]]
+
+# Global params
+consos = ['Conso_RES', 'Conso_PRO', 'Conso_Agriculture', 'Conso_Industrie', 'Conso_Tertiaire']
+nb_pdl = ['Nb_RES', 'Nb_PRO', 'Nb_Agriculture', 'Nb_Industrie', 'Nb_Tertiaire']
+
+iris_cols = ['Annee', 'IRIS_NAME', 'IRIS_TYPE', 'COMM_NAME', 'COMM_CODE',
+       'EPCI_NAME', 'EPCI_CODE', 'EPCI_TYPE', 'DEP_NAME', 'Departement',
+       'REGION_NAME', 'REGION_CODE', 'Nb_RES', 'Conso_RES',
+       'Conso_moyenne_RES', 'Conso_totale_RES_theromosensible',
+       'Conso_totale_RES_non_theromosensible',
+       'Conso_moyenne_RES_theromosensible',
+       'Conso_moyenne_RES_non_theromosensible', 'Part_thermosensible_RES',
+       'Thermosensibilite_tot_RES_kWh_DJU',
+       'Thermosensibilite_moyenneRES_kWh_DJU',
+       'Conso_tot_corrigee_alea_climatique',
+       'Conso_moy_corrigee_alea_climatique', 'Nb_PRO', 'Conso_PRO',
+       'Conso_moyenne_PRO', 'DJU', 'Nb_Agriculture', 'Conso_Agriculture',
+       'Nb_Industrie', 'Conso_Industrie', 'Nb_Tertiaire', 'Conso_Tertiaire',
+       'Nb_Autres', 'Conso_Autres', 'Habitants', 'Taux_logements_collectifs',
+       'Taux_residences_principales', 'Logements_inf_30m2',
+       'Logements_30_40m2', 'Logements_40_60m2', 'Logements_60_80m2',
+       'Logements_80_100m2', 'Logements_sup_100m2',
+       'Residences_principales_1919', 'Residences_principales_1919_1945',
+       'Residences_principales_1946_1970', 'Residences_principales_1971_1990',
+       'Residences_principales_1991_2005', 'Residences_principales_2006_2010',
+       'Residences_principales_2011', 'Taux_chauffage_elec', 'Lat', 'Lon',
+       'Load_GWh', 'SS', 'hab_pu', 'w_pu', 'N_VOIT', 'RATIO_PARKING', 'RES_PRINC']
+
+# FUNCTIONS
 
 def plot_polygons(polys, ax='', **kwargs):
     """ Plot a list of polygons into the axis ax
@@ -21,11 +82,17 @@ def plot_polygons(polys, ax='', **kwargs):
     ax.autoscale()
     return ax
     
-def plot_segments(segments, ax='', **kwargs):
+def plot_segments(segments, ax='', loop=True, ends=False, **kwargs):
     if ax=='':
         f, ax = plt.subplots()
     for s in segments:
-        ax.plot(np.array(s)[:,0],np.array(s)[:,1],**kwargs)
+        if loop:
+            s.append(s[0]) 
+        x = np.array(s)[:,0]
+        y = np.array(s)[:,1]
+        ax.plot(x,y,**kwargs)
+        if ends:
+            ax.plot([x[0],x[-1]], [y[0],y[-1]], 'r*')
     return ax
     
     
@@ -49,9 +116,35 @@ def fix_wrong_encoding_str(pdSeries):
     
     return out
 
-def do_polygons(df, plot=False):
+
+
+def load_polygons_iris(year=2016, folder='', file=''):
+    if folder =='':
+        folder = r'c:\user\U546416\Documents\PhD\Data\DataGeo\\'
+    if file=='':
+        file = 'IRIS_all_geo_'+str(year)+'.csv'
+    iris_poly = pd.read_csv(folder+file,
+                        engine='python', index_col=0)
+    return do_polygons(iris_poly, plot=True)
+
+def load_polygons_SS(year=2016, folder='', file=''):
+    if folder == '':
+        folder = r'c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau//'
+    if file == '':
+        file = 'postes_source_polygons.csv'
+    SS_poly = pd.read_csv(folder+file,
+                        engine='python', index_col=0)
+    return do_polygons(SS_poly, plot=True)
+
+def list_polygons(polygons, index):
+    return [p for i in index for p in polygons[i]]
+
+def do_polygons(df, plot=True):
     """ Do polygons from df or pdSeries
     """
+    if type(df.Polygon.iloc[0]) == str:
+        df.Polygon = df.Polygon.apply(lambda x: eval(x))
+    #print(type(df.Polygon.iloc[0]))
     polygons = {c: [ptc.Polygon(p) for p in df.Polygon[c] if len(p) > 1] for c in df.index}
     if plot:
         plot_polygons([p for pp in polygons.values() for p in pp])
@@ -75,33 +168,19 @@ def compute_load_from_ss(energydata, profiledata, ss):
     return (profiledata[profiles] * factors * mwhy_to_mw).sum(axis=1)
 
 def aspect_carte_france(ax, title="", palette='',
-                        ranges='', wbin_palette=15, label_middle='<d<', label_end='',
+                       labels='',
                         cns='France', latlons='', delta_cns=0.2):
     if palette=='':
         palette = ['b','lightgreen', 'forestgreen', 'khaki', 'gold', 'orange', 'r']
-    if ranges=='':
-        ranges=[i for i in range(len(palette)+1)*wbin_palette]
+    if labels =='':
+        wbin = 15
+        labels=[str(i * wbin) + '<d<' + str((i+1)*wbin) for i in range(len(palette))]
     if cns=='France':
-        cns = ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Bordeaux', 'Nantes', 'Lille', 'Rennes']
-        latlons = [[2.3424567382662334, 48.859626443036575],
-                 [5.3863214053108095, 43.300743046351528],
-                 [4.8363757561790415, 45.771993345448962],
-                 [1.4194663657069806, 43.58313856938689],
-                 [-0.58251346635799961, 44.856834056176488],
-                 [-1.5448118357936005, 47.227505954238453],
-                 [2.98834511866088, 50.651686273910592],
-                 [-1.6966383042920521, 48.083113659214533]]
+        cns = cns_fr
+        latlons = latlons_fr
     if cns == 'idf':
-        cns = ['Paris', 'Versailles', 'Évry', 'Meaux', 'Bordeaux', 'Nemours', 'Cergy', 'Étampes', 'Provins']
-        latlons = [[2.3424567382662334, 48.859626443036575],
-                 [2.131139599462395, 48.813017693582793],
-                 [2.4419262056107969, 48.632343164682723],
-                 [2.9197438849044732, 48.952766254606502],
-                 [-0.58251346635799961, 44.856834056176488],
-                 [2.7070194793010449, 48.26850934641633],
-                 [2.0698102422679203, 49.037687672577924],
-                 [2.1386667699798143, 48.435164427848107],
-                 [3.2930400953107446, 48.544799959855652]]
+        cns = cns_idf
+        latlons = latlons_idf
         delta_cns=0
         
     ax.set_title(title)
@@ -110,13 +189,109 @@ def aspect_carte_france(ax, title="", palette='',
     xlim = ax.get_xlim()
     ylim = ax.get_ylim()
     # Do labels
-    for i in range(len(palette)):
-        ax.plot(1,1,'s', color=palette[i], 
-                label=str(ranges[i])+label_middle+str(ranges[i+1])+label_end)
+    if labels:
+        for i in range(len(palette)):
+            ax.plot(1,1,'s', color=palette[i], label=labels[i])
     ax.set_ylim(ylim)
     ax.set_xlim(xlim)
     ax.legend(loc=3)
     for i in range(len(cns)):
         ax.text(latlons[i][0],latlons[i][1]+delta_cns, cns[i], ha='center',
            path_effects=[pe.withStroke(linewidth=2, foreground='w')])
+
+
+def compute_lognorm_cdf(hist, bins='', params=False, plot=False):
+    """ Returns a fitted CDF of a lognormal distribution, from a given histogram of distances
+    """
+    if bins == '':
+        bins = [i*2 for i in range(len(hist)+1)]
+    db = bins[1]-bins[0]
+    points = [bins[i] + db/2 for i in range(len(hist)) for j in range(int(np.round(hist[i],0)))]
+    #return points
+    s, loc, scale = stats.lognorm.fit(points)
+    if plot:
+        pdf = stats.lognorm.pdf(bins, s, loc, scale)
+        plt.plot(bins, pdf / sum(pdf))
+        plt.bar(bins[:-1], hist/hist.sum())
+    if params:
+        return {'s':s, 'loc':loc, 'scale':scale}
+    cdf = stats.lognorm.cdf(bins, s, loc, scale)
+    return cdf/cdf[-1], bins
+    
+    
+def get_max_load_week(load, step=30, buffer_before=0, buffer_after=0, extra_t=0):
+    """ Returns the week of max load. It adds buffer days before and after
+    load needs to be a pandas Series
+    """
+    if type(load) == pd.core.frame.DataFrame:
+        load = load.squeeze()
+    if type(load.index[0]) == str:
+        fmtdt = '%Y-%m-%d %H:%M:%S%z'
+        #parse!
+        load.index = load.index.map(lambda x: dt.datetime.strptime(''.join(x.rsplit(':',1)), fmtdt))
+    idmax = load.idxmax()
+    dwmax = idmax.weekday()
+    dini = idmax - dt.timedelta(days=dwmax+buffer_before, hours=idmax.hour, minutes=idmax.minute)
+    dend = dini + dt.timedelta(days=7+buffer_after+buffer_before) - dt.timedelta(minutes=(1-extra_t)*step)
+    return load.loc[dini:dend]
+
+def period_to_year(period, dt_ini=0, step=30):
+    """ repeats the period vector to a full year, returning it with dt_ini days of delay
+    """
+    days_p = len(period) / (24 * 60/step)
+    if days_p % 1 > 0:
+        raise ValueError('Invalid length of period to repeat. Needs to be a full day(s)')
+    year = np.tile(period, int(np.ceil(365/days_p)+1))
+    return year[int(dt_ini * 24 * 60/step):int((dt_ini + 365) * 24 * 60/step)]
+
+def hist_ovl(load, max_load, h_nsteps=4):
+    """ Returns an histogram of the lengths of overloads
+    """
+    ovl = load > max_load
+    k = 0
+    len_ovl = []
+    for j in ovl:
+        if j:
+            k+=1
+        elif k>0:
+            len_ovl.append(k)
+            k=0
+    return np.histogram(len_ovl, bins=[i for i in range(1, h_nsteps+2)])
+    
+def evaluate_max_load(base_load, ev_load, max_load, step=30):
+    """ Evaluates the impact of a x days ev load for the full year.
+    Returns: max load, hours overload at 80,90,100%, and 
+    histograms of duration of overload at 100% by 1,2,3,4+ steps 
+    """
+    if type(base_load) in [pd.core.frame.DataFrame, pd.core.frame.Series]:
+        base_load = base_load.values.squeeze()
+    load = base_load + ev_load
+    peak_load = load.max()
+    h_ovl = [(load > (max_load * 0.8)).sum() * step / 60,
+             (load > (max_load * 0.9)).sum() * step / 60,
+             (load > (max_load * 1.0)).sum() * step / 60]
+    return peak_load, h_ovl, hist_ovl(load, max_load), load
+
+def interpolate(data, step=15):
+    """ Returns the data with a greater time resolution, by interpolating it
+    """
+    if type(data.index[0]) == str:
+        fmtdt = '%Y-%m-%d %H:%M:%S%z'
+        #parse!
+        data.index = data.index.map(lambda x: dt.datetime.strptime(''.join(x.rsplit(':',1)), fmtdt))
+    if (data.index[1]-data.index[0])/dt.timedelta(minutes=step) % 1>0:
+        raise ValueError('Invalid step, it should be a divisor of data step')
+    return data.asfreq(freq=dt.timedelta(minutes=step)).interpolate()
+    
+def computeDist(latlon1, latlon2):
+    """Computes pythagorean distance between 2 points (need to be np.arrays)
+    """
+    radius=6371
+    latlon1 = latlon1 * np.pi/180
+    latlon2 = latlon2 * np.pi/180
+    deltaLatLon = (latlon2-latlon1)
+    x = deltaLatLon[1] * np.cos((latlon1[0]+latlon2[0])/2)
+    y = deltaLatLon[0]
+    return radius*np.sqrt(x*x + y*y)   
+    
     

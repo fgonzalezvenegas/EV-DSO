@@ -107,11 +107,9 @@ print(i, ';\tAssigned IRIS:', len(iris), ';\tMultiPolygons:', mp, ';\tLap (s):',
 
 
 
-#%%
-polygons = {c: [ptc.Polygon(p) for p in iris_poly[c]] for c in iris_poly.keys()}
-util.plot_polygons([p for pp in polygons.values() for p in pp])
-#%%saving
-iris = pd.DataFrame(iris, index=['Code_Comm', 'Nom_Comm', 'Nom_IRIS', 'IRIS_Type', 'PolygonType']).transpose()
+#%%checking and saving
+iris = pd.DataFrame(iris, index=['COMM_CODE', 'COMM_NAME', 'IRIS_NAME', 'IRIS_TYPE', 'PolygonType']).transpose()
+polygons = util.do_polygons(iris, plot=True)
 #iris.to_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Base\GeoData\IRIS_all_geo.csv')
 iris['Polygon'] = pd.Series(iris_poly)
 iris['Lon'] = iris.Polygon.apply(lambda x: np.mean(np.asarray(x[0]), axis=0)[0])

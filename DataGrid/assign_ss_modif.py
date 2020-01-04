@@ -5,7 +5,7 @@ Assign IRIS/Commune to SS
 @author: U546416
 """
 
-import mobility as mb
+#import mobility as mb
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -13,6 +13,7 @@ from matplotlib.collections import LineCollection, PatchCollection
 import matplotlib.patches as ptc
 #import polygons as pg
 import matplotlib.patheffects as pe
+import util
 
 def compute_distances(zones, substations):
     """Computes distances for two set of zones.
@@ -27,7 +28,7 @@ def compute_distances(zones, substations):
         z = zones.index[i]
         dist[z] = []
         for j in range(len(substations.index)):
-            dist[z].append(mb.computeDist(latlonz[i], latlonss[j]))
+            dist[z].append(util.computeDist(latlonz[i], latlonss[j]))
     return pd.DataFrame(dist, index=substations.index)
 
 
@@ -73,7 +74,7 @@ def assign_algorithm(zones, substations, verbose=True, plotose=False,
     if verbose:
         print('Distances computed')
         print('Computing substation load rates')
-    load_rates = compute_load_rate(zones.Load, substations.Pmax, assignment)
+    load_rates = compute_load_rate(zones.Load_GWh, substations.Pmax, assignment)
     it = 0
     maxr = [load_rates.max()]
     assignmentmin = assignment
@@ -86,7 +87,7 @@ def assign_algorithm(zones, substations, verbose=True, plotose=False,
             print('Iteration {}: \nMax load rate: Substation {}, {}'.format(it, load_rates.idxmax(), load_rates.max()))
         dist = update_distances(dist, load_rates, max_load, alpha)
         assignment = assigns_min(dist)
-        load_rates = compute_load_rate(zones.Load, substations.Pmax, assignment)
+        load_rates = compute_load_rate(zones.Load_GWh, substations.Pmax, assignment)
         maxr.append(load_rates.max())
         it += 1
         if maxr[-1] == min(maxr):
@@ -183,26 +184,27 @@ print('SS Data')
 SS = pd.read_csv('c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau/postes_source.csv', 
                  engine='python', index_col=0)
 
-SS_polys = pd.read_csv('c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau/postes_source_polygons.csv', 
-                 engine='python', index_col=0)
+#SS_polys = pd.read_csv('c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau/postes_source_polygons.csv', 
+#                 engine='python', index_col=0)
 
 #iris_full = pd.read_csv(r'C:\Users\u546416\Downloads\consommation-electrique-par-secteur-dactivite-iris.csv', 
 #                   engine='python', index_col=2, delimiter=';')
 print('Polygons')
 iris_poly = pd.read_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Base\GeoData\IRIS_all_geo_2016.csv',
                         engine='python', index_col=0)
+polygons = util.load_polygons_iris()
 print('Load Profiles')
 # Load conso profiles data (in pu (power, not energy))
 load_profiles = pd.read_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Conso\conso_all_pu.csv', 
                            engine='python', delimiter=',', index_col=0)
-#%% Constructing polygons
-print('Constructing polygons')
-iris_poly.Polygon = iris_poly.Polygon.apply(lambda x: eval(x))
-polygons = {c: [ptc.Polygon(p) for p in iris_poly.Polygon[c]] for c in iris_poly.index}
-#test
-plot_polygons([pp for p in polygons.values() for pp in p])
-print('Finished')
-#for i in iris_poly[iris_poly.type == 'Polygon'].index:
+##%% Constructing polygons
+#print('Constructing polygons')
+#iris_poly.Polygon = iris_poly.Polygon.apply(lambda x: eval(x))
+#polygons = {c: [ptc.Polygon(p) for p in iris_poly.Polygon[c]] for c in iris_poly.index}
+##test
+#util.plot_polygons([pp for p in polygons.values() for pp in p])
+#print('Finished')
+##for i in iris_poly[iris_poly.type == 'Polygon'].index:
 #    if j%1000 == 0:
 #        print('IRIS # {}'.format(j))
 #    j += 1
@@ -240,16 +242,18 @@ print('Finished')
 #
 #dfpolys = pd.DataFrame([polyIris, typePoly])
 
-#%%
-iris['Lat'] = iris_poly.Lat[iris.index]
-iris['Lon'] = iris_poly.Lon[iris.index]
-consos = ['Conso_RES', 'Conso_PRO', 'Conso_Industrie', 'Conso_Agriculture', 'Conso_Tertiaire', 'Conso_Autres']
-iris['Load'] = iris[consos].sum(axis=1)/1000
-# non affected iris to polygons
-naff = iris[iris.Lat.isnull()]
-print('non affected iris to polygon:', len(naff))
+##%%
+#iris['Lat'] = iris_poly.Lat[iris.index]
+#iris['Lon'] = iris_poly.Lon[iris.index]
+#consos = ['Conso_RES', 'Conso_PRO', 'Conso_Industrie', 'Conso_Agriculture', 'Conso_Tertiaire', 'Conso_Autres']
+#iris['Load'] = iris[consos].sum(axis=1)/1000
+## non affected iris to polygons
+#naff = iris[iris.Lat.isnull()]
+#print('non affected iris to polygon:', len(naff))
 
 #%% Assign IRIS, iterating by department
+
+consos = util.consos
 
 deps = iris.Departement.unique()
 deps.sort()
@@ -257,6 +261,7 @@ deps.sort()
 
 ml = []
 assigns = pd.Series()
+iris.Departement = iris.Departement.astype(int)
 for d in deps:
     print('\nAssigning SS in département {}'.format(d))
     
@@ -269,7 +274,7 @@ for d in deps:
     assigns = pd.concat([assigns, assignment])
     
 
-#%%
+    #%%
 iris['SS'] = assigns
 #%% Plot departments
 
@@ -285,8 +290,8 @@ for d in deps:
     ax.clear()
     ax.set_aspect('equal')
     #plot all irises:
-    iriDep = iris_poly[(iris_poly.Code_Comm>d*1000)&(iris_poly.Code_Comm<(d+1)*1000)]
-    plot_polygons([p for i in iriDep.index for p in polygons[i]], 
+    iriDep = iris_poly[(iris_poly.COMM_CODE>d*1000)&(iris_poly.COMM_CODE<(d+1)*1000)]
+    util.plot_polygons([p for i in iriDep.index for p in polygons[i]], 
                   ax=ax, facecolor='white', edgecolor='k', linestyle='--')
     #Select subset to plot
     irises = iris[iris.Departement == d]
@@ -295,7 +300,7 @@ for d in deps:
     assignment = irises.SS
     plot_polygon_assignment(irises, SSs, assignment, polygons, ax=ax)
     #Plot SS names
-    maxload = compute_load_rate(irises.Load, SSs.Pmax, assignment).max()
+    maxload = compute_load_rate(irises.Load_GWh, SSs.Pmax, assignment).max()
     maxl[d] = maxload
     ax.set_title('{} {:.0f}, max SS load {:.2f} p.u.'.format(irises.DEP_NAME.iloc[0], d, maxload))
     for ss in SSs.index:
@@ -329,7 +334,7 @@ SSs = SS[(SS.Departement == d) & (SS.GRD == 'Enedis')]
 assignment = irises.SS
 plot_polygon_assignment(irises, SSs, assignment, polygons, ax=ax)
 #Plot SS names
-loading = compute_load_rate(irises.Load, SSs.Pmax, assignment)
+loading = compute_load_rate(irises.Load_GWh, SSs.Pmax, assignment)
 print(loading)
 maxload = loading.max()
 ax.set_title('{} {:.0f}, max SS load {:.2f} p.u.'.format(irises.DEP_NAME.iloc[0], d, maxload))
@@ -342,28 +347,6 @@ f.savefig(r'c:\user\U546416\Pictures\SS\IRIS\Dep{}.png'.format(d))
 
 
 
-#%% Load histograms of distances
-folder_hdata = r'c:\user\U546416\Documents\PhD\Data\Mobilité'
-hhome = pd.read_csv(folder_hdata + r'\HistHomeModal.csv', 
-                    engine='python', index_col=0)
-hwork = pd.read_csv(folder_hdata + r'\HistWorkModal.csv', 
-                    engine='python', index_col=0)
+#%%save iris
 
-
-#%% Plot type Iris
-polyA = [iris_polygons[i] for i in iris[iris.Type_IRIS == 'A'].index]
-polyH = [iris_polygons[i] for i in iris[iris.Type_IRIS == 'H'].index]
-polyD = [iris_polygons[i] for i in iris[iris.Type_IRIS == 'D'].index]
-polyZ = [iris_polygons[i] for i in iris[iris.Type_IRIS == 'Z'].index]
-collectionA = PatchCollection(polyA, facecolors='r', label='Activité')
-collectionH = PatchCollection(polyH, facecolors='b', label='Habitation')
-collectionD = PatchCollection(polyD, facecolors='silver', label='Divers')
-collectionZ = PatchCollection(polyZ, facecolors='g', label='Rural')
-
-f, ax = plt.subplots()
-ax.add_collection(collectionA)
-ax.add_collection(collectionZ)
-ax.add_collection(collectionD)
-ax.add_collection(collectionH)
-ax.autoscale()
-plt.legend()
+iris.to_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Conso\IRIS_enedis_2017.csv')

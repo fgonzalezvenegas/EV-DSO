@@ -49,15 +49,24 @@ def get_edge_segments(polygons, use4=False):
         # It creates segments of silhouette points
         vs = p.get_verts()
         e = []
+        skip=False
         for v in vs:
-            if checkfx(v, polygons):
+            if skip:
+                skip=False
+                continue
+            exterior = checkfx(v, polygons)
+            v=list(v)
+            unique = (sum([v in s for s in segments]) == 0)
+            if exterior and unique:
                 e.append(v)
             else:
                 if len(e)>1:
                     segments.append(e)
                     e = []
+                    skip = True
                 else:
                     e = []
+                    skip = True
         if len(e)>1:
             segments.append(e)
     return segments
@@ -65,18 +74,27 @@ def get_edge_segments(polygons, use4=False):
 def order_segments(segments):
     """Orders the segments of silhouette points to create a polygon. Assumes all segments are clockwise (or counterclockwise)
     """
+    polygons = []
     while len(segments) > 1:
         ins = [e[0] for e in segments] # Extreme (begining) of each segment
         outs = [e[-1] for e in segments] # Extreme (end) of each segment
         l = len(ins) # number of segments
         # Distances from the begining of the first segment to the end each of the other segments
         ds = [(outs[j][0]-ins[0][0])**2 + (outs[j][1]-ins[0][1])**2  for j in range(1,l)] 
+        # Distance between end-points of first segment
+        d0 = (outs[0][0]-ins[0][0])**2 + (outs[0][1]-ins[0][1])**2
         # Select the closest segment
         index_min = min(range(len(ds)), key=ds.__getitem__)
-        # join the segments
-        segments[0] = segments[index_min+1] + segments[0]
-        del segments[index_min+1]
-    return segments
+        # if closest segment is farther away than closing the loop, closes the loop and creates new polygon
+        if d0 < ds[index_min]:
+            polygons.append(segments[0])
+            del segments[0]
+        else:
+            # join the segments
+            segments[0] = segments[index_min+1] + segments[0]
+            del segments[index_min+1]
+    polygons.append(segments[0])
+    return polygons
         
 def get_silhouette(polygons, use4=False):
     segments = get_edge_segments(polygons, use4=use4)
@@ -97,17 +115,7 @@ SS = pd.read_csv('c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Rese
 #iris_full = pd.read_csv(r'C:\Users\u546416\Downloads\consommation-electrique-par-secteur-dactivite-iris.csv', 
 #                   engine='python', index_col=2, delimiter=';')
 print('Polygons')
-iris_poly = pd.read_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Base\GeoData\IRIS_all_geo_2016.csv',
-                        engine='python', index_col=0)
-
-#%% Constructing polygons
-print('Constructing polygons')
-iris_poly.Polygon = iris_poly.Polygon.apply(lambda x: eval(x))
-polygons = {c: [ptc.Polygon(p) for p in iris_poly.Polygon[c]] for c in iris_poly.index}
-#test
-util.plot_polygons([pp for p in polygons.values() for pp in p])
-print('Finished')
-
+polygons = util.load_polygons_iris()
 
 #%%
 edges = {}
@@ -129,28 +137,26 @@ for ss in SS[SS.GRD == 'Enedis'].index:
         edges[ss] = [[]]
         continue
     sil = get_silhouette(polys, use4=True)
-    edges[ss] = sil[0]
-    if i%200 == 0:
+    edges[ss] = sil
+    if (i+2)%200 == 0:
         f, ax = plt.subplots()
         util.plot_polygons(polys, ax, facecolors='lightgreen')
         util.plot_segments(sil, ax, color='k', linestyle='--')
 
-edges = {ss : [[list(p) for p in edges[ss]]] for ss in edges}
+edges = {ss : [p for p in edges[ss]] for ss in edges}
 edges = pd.DataFrame(edges, index=['Polygon']).T
-#transform each thing into list
-#edges.to_csv(r'c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau/postes_source_edges.csv')
+
 
 #%% Create SS polygons (& Plot SS)
-deps_idf = [75, 77, 78, 91, 92, 93,  94, 95]
-polygons_ss= {ss: ptc.Polygon(edges.Polygon[ss]) for ss in edges.index if len(edges.Polygon[ss])>2}
-util.plot_polygons([p for p in polygons_ss.values()], edgecolors='k')
-util.plot_polygons([polygons_ss[ss] for ss in polygons_ss if SS.Departement[ss] in deps_idf])
+polygons_ss= util.do_polygons(edges)
+util.plot_polygons(util.list_polygons(polygons_ss, polygons_ss.keys()), edgecolors='k', linewidth=0.5)
+util.plot_polygons(util.list_polygons(polygons_ss, SS[SS.Departement.isin(util.deps_idf)].index), edgecolors='k', linewidth=0.5)
 
 #%% Do one - define outside shapes:
 d = 0.00001
-edge = {}
+edges = {}
 i = 0      
-ss = 'COURCELLES'
+ss = 'ITTEVILLE'
 
 irises = iris[iris.SS == ss].index
 polys = [p for irs in irises for p in polygons[irs]]
@@ -159,7 +165,9 @@ if len(irises)==0:
 sil = get_silhouette(polys, use4=True)
 f, ax = plt.subplots()
 util.plot_polygons(polys, ax, facecolors='lightgreen')
-util.plot_segments(sil, ax, color='k', linestyle='--')
+util.plot_segments(sil, ax, color='k', linestyle='--', ends=True)
 
 #edges = pd.DataFrame(edges, index=['Polygon']).T
-#edges.to_csv(r'c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau/postes_source_edges.csv')
+#%% Save
+#edges = pd.DataFrame(edges, index=['Polygon']).T
+edges.to_csv(r'c:/user/U546416/Documents/PhD/Data/Mobilité/Data_Traitee/Reseau/postes_source_polygons.csv')
