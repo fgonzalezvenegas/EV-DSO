@@ -203,6 +203,9 @@ class Grid:
             #TODO: load as DataFrame?
             #no base load given
             self.base_load = np.zeros(self.periods)
+        elif len(load) != self.periods:
+            #TODO: automatic correction
+            raise ValueError('Base load does not match periods')
         else:
             self.base_load = load
    
@@ -408,12 +411,16 @@ class Grid:
                     for t in types]
         max_load = [self.ev_load[t].max() 
                     for t in types]
+        avg_d = [np.mean([ev.dist_wd 
+                         for ev in self.evs[t]])
+                for t in types]
         return {'EV_sets': types,
                 'n_EVs': nevs,
                 'EV_charge_MWh': charge,
                 'extra_charge' : extra_charge,
                 'Flex_ratio': flex_ratio,
-                'max_load': max_load}
+                'max_load': max_load,
+                'Avg_daily_dist' : avg_d}
         
         
     def do_dist_hist(self, weekday=True, **plot_params):
@@ -596,7 +603,7 @@ class EV:
         self.n_if_needed = n_if_needed                  # Factor for probabilitic "if needed" charging. High means low plug in rate, low means high plug in rate
         self.tou_ini = tou_ini                          # Time of Use (low tariff) start time (default=0) 
         self.tou_end = tou_end                          # Time of Use (low tariff) end time (default=0)
-        self.tou_we = tou_we                            # Time of Use for weekend
+        self.tou_we = tou_we                            # Time of Use for weekend. If false, it's off peak the whole weekend
         self.arrival_departure_data_wd = arrival_departure_data_wd
         self.arrival_departure_data_we = arrival_departure_data_we
         
@@ -636,11 +643,12 @@ class EV:
         loc=0
         if type(data_dist) == dict:
             if 's' in data_dist:
+                # Data as scipy.stats.lognorm params
                 s = data_dist['s']
                 loc = data_dist['loc']
                 scale = data_dist['scale']
-                return stats.lognorm.rvs(s, loc, scale, 1)
             if 'cdf' in data_dist:
+                # data as a cdf, containts cdf and bins values
                 cdf = data_dist['cdf']
                 if 'bins' in data_dist:
                     bins_dist = data_dist['bins']
@@ -692,13 +700,13 @@ class EV:
         self.off_peak = np.ones(model.periods)
         if self.tou_ini < self.tou_end:
             for i in range(model.periods):
-                if not (self.tou_we and model.times[i][2] in model.weekends):
+                if not (self.tou_we and (model.times[i][2] in model.weekends)):
                     # This checks that there is no special ToU in weekends, and that it is not the weekend
                     if model.times[i][1] < self.tou_ini or model.times[i][1] >= self.tou_end:
                         self.off_peak[i] = 0
         elif self.tou_ini > self.tou_end:
             for i in range(model.periods):
-                if not (self.tou_we and model.times[i][2] in model.weekends):
+                if not (self.tou_we and (model.times[i][2] in model.weekends)):
                     if self.tou_end <= model.times[i][1] < self.tou_ini:
                         self.off_peak[i] = 0
                     

@@ -124,6 +124,7 @@ ax1.set_ylim([0,0.17])
 ax1.set_ylabel('Densité')
 ax1.set_xlabel('Distance [km]')
 #%% Plot mean distance
+# Obsolete : Use Polygons!
 step = 2
 nbins = 50
 x = [i*step+1 for i in range(nbins)]

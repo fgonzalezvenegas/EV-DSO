@@ -1,5 +1,5 @@
 """
-Computes load profiles for substations
+Computes aggregated load profiles for substations
 """
 
 

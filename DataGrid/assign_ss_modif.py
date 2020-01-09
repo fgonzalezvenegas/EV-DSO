@@ -197,59 +197,6 @@ print('Load Profiles')
 # Load conso profiles data (in pu (power, not energy))
 load_profiles = pd.read_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Conso\conso_all_pu.csv', 
                            engine='python', delimiter=',', index_col=0)
-##%% Constructing polygons
-#print('Constructing polygons')
-#iris_poly.Polygon = iris_poly.Polygon.apply(lambda x: eval(x))
-#polygons = {c: [ptc.Polygon(p) for p in iris_poly.Polygon[c]] for c in iris_poly.index}
-##test
-#util.plot_polygons([pp for p in polygons.values() for pp in p])
-#print('Finished')
-##for i in iris_poly[iris_poly.type == 'Polygon'].index:
-#    if j%1000 == 0:
-#        print('IRIS # {}'.format(j))
-#    j += 1
-#    iris_polygons[int(i)] = [ptc.Polygon(iris_poly.coords[i])]
-#for i in iris_poly[iris_poly.type == 'MultiPolygon'].index:
-#    if j%1000 == 0:
-#        print('IRIS # {}'.format(j))
-#    j += 1
-#    iris_polygons[int(i)] = [ptc.Polygon(eval(iris_poly.coords[i])[j]) for j in iris_poly.coords[i]]
-    
-#% If IRIS-SS assignment is redefined, also should the SS polygons
-#print('Constructing SS polygons')
-#SS_polygons = {ss : ptc.Polygon(eval(SS_polys.Polygon[ss]))
-#                    for ss in SS_polys.index 
-#                    if len(eval(SS_polys.Polygon[ss])) > 2}
-
-
-
-##%%
-#polyIris = {}
-#typePoly = {}
-#j = 0
-#print('Constructing IRIS polygons DF')
-#for i in iris_full.index:
-#    if j%1000 == 0:
-#        print('IRIS # {}'.format(j))
-#    j += 1
-#    try:
-#        poly = eval(iris_full.loc[i, 'geom'])
-#        polyIris[int(i)] = poly['coordinates'][0]
-#        typePoly[int(i)] = poly['type']
-#
-#    except:
-#        pass    
-#
-#dfpolys = pd.DataFrame([polyIris, typePoly])
-
-##%%
-#iris['Lat'] = iris_poly.Lat[iris.index]
-#iris['Lon'] = iris_poly.Lon[iris.index]
-#consos = ['Conso_RES', 'Conso_PRO', 'Conso_Industrie', 'Conso_Agriculture', 'Conso_Tertiaire', 'Conso_Autres']
-#iris['Load'] = iris[consos].sum(axis=1)/1000
-## non affected iris to polygons
-#naff = iris[iris.Lat.isnull()]
-#print('non affected iris to polygon:', len(naff))
 
 #%% Assign IRIS, iterating by department
 

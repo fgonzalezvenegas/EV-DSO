@@ -11,6 +11,7 @@ import matplotlib.patheffects as pe
 #import assign_ss_modif as ass_ss
 import scipy.stats as stats
 import datetime as dt
+import os
 
 # PARAMS
 
@@ -32,7 +33,7 @@ latlons_idf = [[2.3424567382662334, 48.859626443036575],
          [2.0698102422679203, 49.037687672577924],
          [2.1386667699798143, 48.435164427848107],
          [3.2930400953107446, 48.544799959855652]]
-cns_fr = ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Bordeaux', 'Nantes', 'Lille', 'Rennes']
+cns_fr = ['Paris', 'Marseille', 'Lyon', 'Toulouse', 'Bordeaux', 'Nantes', 'Lille', 'Rennes', 'Strasbourg']
 latlons_fr = [[2.3424567382662334, 48.859626443036575],
          [5.3863214053108095, 43.300743046351528],
          [4.8363757561790415, 45.771993345448962],
@@ -40,7 +41,8 @@ latlons_fr = [[2.3424567382662334, 48.859626443036575],
          [-0.58251346635799961, 44.856834056176488],
          [-1.5448118357936005, 47.227505954238453],
          [2.98834511866088, 50.651686273910592],
-         [-1.6966383042920521, 48.083113659214533]]
+         [-1.6966383042920521, 48.083113659214533],
+         [7.748341, 48.584826]]
 
 # Global params
 consos = ['Conso_RES', 'Conso_PRO', 'Conso_Agriculture', 'Conso_Industrie', 'Conso_Tertiaire']
@@ -167,14 +169,14 @@ def compute_load_from_ss(energydata, profiledata, ss):
     
     return (profiledata[profiles] * factors * mwhy_to_mw).sum(axis=1)
 
-def aspect_carte_france(ax, title="", palette='',
-                       labels='',
+def aspect_carte_france(ax, title='', palette=None,
+                       labels=None,
                         cns='France', latlons='', delta_cns=0.2):
-    if palette=='':
-        palette = ['b','lightgreen', 'forestgreen', 'khaki', 'gold', 'orange', 'r']
-    if labels =='':
-        wbin = 15
-        labels=[str(i * wbin) + '<d<' + str((i+1)*wbin) for i in range(len(palette))]
+#    if palette==None:
+#        palette = ['b','lightgreen', 'forestgreen', 'khaki', 'gold', 'orange', 'r']
+#    if labels ==None:
+#        wbin = 15
+#        labels=[str(i * wbin) + '<d<' + str((i+1)*wbin) for i in range(len(palette))]
     if cns=='France':
         cns = cns_fr
         latlons = latlons_fr
@@ -185,23 +187,22 @@ def aspect_carte_france(ax, title="", palette='',
         
     ax.set_title(title)
     ax.autoscale()
-    ax.set_aspect('equal')
-    xlim = ax.get_xlim()
-    ylim = ax.get_ylim()
+    a = ax.axis()
+    ax.set_aspect(compute_aspect_carte(*a))
     # Do labels
-    if labels:
+    if labels != None:
         for i in range(len(palette)):
             ax.plot(1,1,'s', color=palette[i], label=labels[i])
-    ax.set_ylim(ylim)
-    ax.set_xlim(xlim)
+    ax.axis(a)
     ax.legend(loc=3)
     for i in range(len(cns)):
         ax.text(latlons[i][0],latlons[i][1]+delta_cns, cns[i], ha='center',
            path_effects=[pe.withStroke(linewidth=2, foreground='w')])
 
 
-def compute_lognorm_cdf(hist, bins='', params=False, plot=False):
+def compute_lognorm_cdf(hist, bins='', params=False, plot=False, ax=None):
     """ Returns a fitted CDF of a lognormal distribution, from a given histogram of distances
+    If params=True, returns the parameters of the fitted lognorm
     """
     if bins == '':
         bins = [i*2 for i in range(len(hist)+1)]
@@ -210,9 +211,11 @@ def compute_lognorm_cdf(hist, bins='', params=False, plot=False):
     #return points
     s, loc, scale = stats.lognorm.fit(points)
     if plot:
+        if ax==None:
+            f,ax = plt.subplots()
         pdf = stats.lognorm.pdf(bins, s, loc, scale)
-        plt.plot(bins, pdf / sum(pdf))
-        plt.bar(bins[:-1], hist/hist.sum())
+        ax.plot(bins, pdf / sum(pdf))
+        ax.bar(bins[:-1], hist/hist.sum())
     if params:
         return {'s':s, 'loc':loc, 'scale':scale}
     cdf = stats.lognorm.cdf(bins, s, loc, scale)
@@ -286,12 +289,35 @@ def interpolate(data, step=15):
 def computeDist(latlon1, latlon2):
     """Computes pythagorean distance between 2 points (need to be np.arrays)
     """
+    if type(latlon1) == list:
+        latlon1 = np.array(latlon1)
+        latlon2 = np.array(latlon2)
     radius=6371
     latlon1 = latlon1 * np.pi/180
     latlon2 = latlon2 * np.pi/180
     deltaLatLon = (latlon2-latlon1)
     x = deltaLatLon[1] * np.cos((latlon1[0]+latlon2[0])/2)
     y = deltaLatLon[0]
-    return radius*np.sqrt(x*x + y*y)   
+    return radius*np.sqrt(x*x + y*y)
+
+def sec_to_time(s):
+    """ Returns the hours, minutes and seconds of a given time in secs
+    """
+    return (s//3600, (s//60)%60, s%60)
     
+def compute_aspect_carte(lon1, lon2, lat1, lat2):
+    """
+    """   
+    lat0, lon0 = (lat1+lat2)/2, (lon1+lon2)/2
+    km_per_lat = computeDist([lat1, lon0], [lat2, lon0]) / abs(lat1-lat2)
+    km_per_lon = computeDist([lat0, lon1], [lat0, lon2]) / abs(lon1-lon2)
+    return km_per_lat / km_per_lon
+
+def create_folder(path, folder, *folders):
+    """ Creates folder in given path
+    """
+    newpath=path + r'\\' + folder + [r'\\' ]
+    if os.path.exists(newpath):
+        os.makedirs(newpath)
+
     

@@ -5,22 +5,15 @@ Created on Mon Feb 25 18:38:55 2019
 @author: U546416
 """
 
-import csv
 import numpy as np
-#import pandas as pd
+import pandas as pd
 import time
 import mobility as mb
+import util
+import matplotlib.pyplot as plt
+import scipy.stats as st
 
-
-def saveDictHist(fold, out_fn, DictHist, GeoRefs, hist_headers):
-    """ Saves an histogram dictionnary, 
-    adding the key variables [3:] in GeoRefs Dict"""
-    with open(fold + out_fn, 'w') as datafile:
-        out_writer = csv.writer(datafile)
-        out_writer.writerow(['CODE', 'ZE', 'Status', 'UU', 'Dep'] + hist_headers)
-        for key in DictHist:
-            out_writer.writerow([key] + GeoRefs[key][3:] + DictHist[key].tolist())
-
+#%% Re-doing it in a more proper way
 
 # Reading Tgeo - it has the information required for each commune
 folder = 'c:/user/U546416/Documents/PhD/Data/Mobilité/'
@@ -29,127 +22,88 @@ data_file = 'data-flux-mob-dreal.txt'
 geo_file = 'geoRefs.csv'
 modal_file = 'ModeTransport.csv'
 
-Tgeo = mb.readTgeo(folder, geo_file)
-Modal = mb.readModal(folderMod, modal_file)
-
-# Initializing Dict of histograms for communes:
-hini = 0
-hstep = 2
-hend = 100
-nbins = int((hend-hini) / hstep)
-
-Thome = mb.initFrCommDict(Tgeo, nbins)    
-Twork = mb.initFrCommDict(Tgeo, nbins)
-Tdreal = mb.initFrCommDict(Tgeo, nbins)
+Tgeo = pd.read_csv(folder + geo_file, engine='python', sep=';', index_col=0)
+flux = pd.read_csv(folder + data_file, engine='python')
+Modal = pd.read_csv(folderMod + modal_file, engine='python', sep=';', index_col=0)
 
 
-# Computing Histograms per commune (work and home)
-t0 = time.time()
-print('Starting')
-tlast = t0        
-with open(folder + data_file, 'r') as datafile:
-    data_reader = csv.reader(datafile, delimiter=',')
-    headers = next(data_reader)
-    print(headers)
-    i = 0
-    nflux = 0
-    for rows in data_reader:
-        # rows have [CommuneInit, CommuneEnd, Flux, distance]
-        i += 1
-        # points of 
-        flux = int(np.ceil(float(rows[2])))
+#%% Computing Histograms per commune (work and home)
+hh_sc = {}
+hh_dc = {}
+hw_dc = {}
 
-        points = mb.distance2cities(flux, Tgeo[rows[0]][2], Tgeo[rows[1]][2], float(rows[3]))
-        h = mb.hist(points, hini, hstep, nbins)
-        Thome[rows[0]] = np.add(Thome[rows[0]], h)
-        if not(Tgeo[rows[1]][5] == '99'):
-            Twork[rows[1]] = np.add(Twork[rows[1]], h)
-        Tdreal[rows[0]][min(int(float(rows[3]) // hstep), nbins-1)] += flux
-        nflux += flux
-        if i % 100000 == 0:
-            tnew = time.time()
-            print('Counter: ', i, 'Computed Flux', nflux)
-            print('Time :', tnew-t0, 'deltaTime :', tnew - tlast)
-            tlast = tnew
-            print 
-            
-print('Finished computed histograms per commune')
-print('Total rows = ', i, '; Total workers = ', nflux)
-print('Total time = ', time.time()-t0, '; deltaTime =', time.time()-tlast)
-print('Sum Thome: ', sum(sum(Thome[key] for key in Thome)))
-print('Sum Twork: ', sum(sum(Twork[key] for key in Twork)))
-print('Sum Tdreal: ', sum(sum(Tdreal[key] for key in Tdreal)))
-
-output_thome = 'HistHome.csv'       
-output_twork = 'HistWork.csv'
-output_tdreal = 'HistDreal.csv'
-
-headers_bins = ['bin' + str(i*hstep) + '_' + str((i+1)*hstep) for i in range(nbins)]
-
-print('Saving data')
-#saveDictHist(folder, output_thome, Thome, Tgeo, headers_bins)
-#saveDictHist(folder, output_twork, Twork, Tgeo, headers_bins)
-#saveDictHist(folder, output_tdreal, Tdreal, Tgeo, headers_bins)      
-print('Data Saved, finished')
-
-#%% Modif considering modal transport       
-Thome = mb.initFrCommDict(Tgeo, nbins)    
-Twork = mb.initFrCommDict(Tgeo, nbins)
-Tdreal = mb.initFrCommDict(Tgeo, nbins)      
-        
-# Computing Histograms per commune (work and home)
 t0 = time.time()
 print('Starting computing histograms considering modal ratio')
-tlast = t0        
-with open(folder + data_file, 'r') as datafile:
-    data_reader = csv.reader(datafile, delimiter=',')
-    headers = next(data_reader)
-    print(headers)
-    i = 0
-    nflux = 0
-    for rows in data_reader:
-        # rows have [CommuneInit, CommuneEnd, Flux, distance]
-        i += 1
+tlast = t0 
+nflux = 0
 
-        if rows[0] == rows[1]:
-        # ie same commune  
-            flux = int(np.ceil(float(rows[2]) * Modal[rows[0]][0]))
+MC = ['MC-AUCUN','MC-PIED','MC-2ROUES','MC-VOITURE','MC-TC']
+DC = ['DC-AUCUN','DC-PIED','DC-2ROUES','DC-VOITURE','DC-TC']
+modal_mc = Modal['MC-VOITURE']/Modal[MC].sum(axis=1)
+modal_dc = Modal['DC-VOITURE']/Modal[DC].sum(axis=1)
+
+bins = [i*2 for i in range(51)]
+nl = flux.shape[0]
+
+corse = ['2A', '2B', '96', '97']
+etranger = ['AL', 'BE', 'DE', 'LU', 'IT', 'SU', 'ES', 'MO']
+for i in flux.index:
+    cinit = flux.CODINIT[i]
+    if cinit[0:2] in corse:
+        # hors Corse
+        continue
+    cend = flux.CODEND[i]
+    if cinit == cend:
+        f = int(np.ceil(flux.FLUX[i]) * modal_mc[cinit])
+    else:
+        f = int(np.ceil(flux.FLUX[i]) * modal_dc[cinit])
+    d = flux.Distance[i]
+    
+    points = mb.distance2cities(f, Tgeo.Size[cinit], Tgeo.Size[cend], d)
+    
+    h = np.histogram(points, bins)[0]
+    if cinit == cend:
+        hh_sc[cinit] = h
+    else:
+        if cinit in hh_dc:
+            hh_dc[cinit] = hh_dc[cinit] + h
         else:
-            flux = int(np.ceil(float(rows[2]) * Modal[rows[0]][1]))
-            
-        points = mb.distance2cities(flux, Tgeo[rows[0]][2], Tgeo[rows[1]][2], float(rows[3]))
-        h = mb.hist(points, hini, hstep, nbins)
-        Thome[rows[0]] = np.add(Thome[rows[0]], h)
-        if not(Tgeo[rows[1]][5] == '99'):
-            Twork[rows[1]] = np.add(Twork[rows[1]], h)
-        Tdreal[rows[0]][min(int(float(rows[3]) // hstep), nbins-1)] += flux
-        nflux += flux
-        if i % 100000 == 0:
-            tnew = time.time()
-            print('Counter: ', i, 'Computed Flux', nflux)
-            print('Time :', tnew-t0, 'deltaTime :', tnew - tlast)
-            tlast = tnew
-            print 
-            
+            hh_dc[cinit] = h
+        if not (cend[0:2] in etranger):
+            if cend in hw_dc:
+                hw_dc[cend] = hw_dc[cend] + h
+            else:
+                hw_dc[cend] = h
+    nflux += f
+    
+    if i % 20000 == 0:
+        tnew = time.time()
+        print('Counter: ', i, 'Computed Flux', nflux, ', Remaining lines:', nl-i)
+        print('Time :', round(tnew-t0,1), 's, deltaTime :', round(tnew - tlast,1), 's')
+        tlast = tnew
+
+hh_dc = pd.DataFrame(hh_dc).T
+hh_sc = pd.DataFrame(hh_sc).T
+hw_dc = pd.DataFrame(hw_dc).T
+
 print('Finished computed histograms per commune')
 print('Total rows = ', i, '; Total workers = ', nflux)
 print('Total time = ', time.time()-t0, '; deltaTime =', time.time()-tlast)
-print('Sum Thome: ', sum(sum(Thome[key] for key in Thome)))
-print('Sum Twork: ', sum(sum(Twork[key] for key in Twork)))
-print('Sum Tdreal: ', sum(sum(Tdreal[key] for key in Tdreal)))
+print('Sum Thome: ', hh_dc.sum().sum() + hh_sc.sum().sum())
+print('Sum Twork: ', hw_dc.sum().sum() + hh_sc.sum().sum())           
 
-#%%
-output_thome = 'HistHomeModal.csv'       
-output_twork = 'HistWorkModal.csv'
-output_tdreal = 'HistDrealModal.csv'
-
-headers_bins = ['bin' + str(i*hstep) + '_' + str((i+1)*hstep) for i in range(nbins)]
-
-print('Saving data')
-saveDictHist(folder, output_thome, Thome, Tgeo, headers_bins)
-saveDictHist(folder, output_twork, Twork, Tgeo, headers_bins)
-saveDictHist(folder, output_tdreal, Tdreal, Tgeo, headers_bins)      
-print('Data Saved, finished')    
-    
-
-    
+bin_n = ['bin{}_{}'.format(int(i*2), int((i+1)*2)) for i in range(50)]
+hh_dc.columns = bin_n
+hh_sc.columns = bin_n
+hw_dc.columns = bin_n
+# Save
+hh_dc.to_csv(folder + 'hhome_diffcom_modal.csv')
+hh_sc.to_csv(folder + 'hhome_samecom_modal.csv')
+hw_dc.to_csv(folder + 'hwork_diffcom_modal.csv')
+#%% Plotting some things
+f, ax = plt.subplots()
+ax.stackplot(bins[0:-1],[hh_dc.sum(axis=0)/1000, hh_sc.sum(axis=0)/1000], labels=['H/W Different Commune', 'H/W Same Commune'])
+ax.set_xlabel('Distance [km]')
+ax.set_ylabel('Commuters [thousands]')
+ax.set_title('One-way Commuting Distance\nAggregated for Continental France')
+plt.legend()

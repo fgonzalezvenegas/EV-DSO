@@ -57,78 +57,11 @@ times.append(time.time())
 print('Finished loading, elapsed time: {} s'.format(np.round(times[-1]-times[-2],1)))
 
 
-#%% Run for one SS
-import EVmodel as EV
-
-# SIMULATION DATA (TIME)
-# Days, steps
-ndays = 21
-step = 15
-
-# GENERAL EV DATA
-
-times = [time.time()]
-# EV penetration
-ev_penetration = .5
-# EV home/work charging
-ev_work_ratio = 0.3
-# EV charging params (charging power, batt size, etc)
-charging_power_home = [[3.6, 7.2, 11], [0.5, 0.4, 0.1]]
-charging_power_work = [[3.6, 7.2, 11, 22], [0.0, 0.2, 0.5, 0.3]]
-batt_size = [[20, 40, 60, 80], [0.20, 0.30, 0.30, 0.20]]
-
-ss = 'BORIETTE'
-iris_ss = iris[iris.SS==ss]
-
-# Number of Evs
-nevs_h = int(iris_ss.N_VOIT.sum() * ev_penetration * (1-ev_work_ratio))
-nevs_w = int(hwork.loc[ss].sum() * ev_penetration * ev_work_ratio * 1.78) # 1.78 is the ratio between nation-wide Work EVs and Total EVs  
-print('EVs Overnight', nevs_h)
-print('EVs Work', nevs_w)
-
-# Distributions of work and home distances
-params_h = util.compute_lognorm_cdf(hhome.loc[ss], params=True)
-params_w = util.compute_lognorm_cdf(hwork.loc[ss], params=True)
-
-# Arrival and departure hourly cdfs
-arr_dep_data_h = {'cdf_arr': arr_dep.ArrHome.cumsum(), 'cdf_dep': arr_dep.DepHome.cumsum()}
-arr_dep_data_w = {'cdf_arr': arr_dep.ArrWork.cumsum(), 'cdf_dep': arr_dep.DepWork.cumsum()}
-
-# compute base load for worst week, adding 7 days of buffer on each side
-folder_profiles = r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Conso\SS_profiles\\'
-conso_profile = pd.read_csv(folder_profiles + ss + '.csv', engine='python', index_col=0)
-load = util.get_max_load_week(conso_profile.squeeze(), buffer_before=7, buffer_after=7)
-
-
-
-grid = EV.Grid(name=ss, ndays=ndays, step=step, load=load, ss_pmax=SS.Pmax[ss])
-grid.add_evs('Overnight', nevs_h, ev_type='dumb',
-             dist_wd=params_h, 
-             charging_power=charging_power_home,
-             charging_type='if_needed',
-             batt_size=batt_size,
-             arrival_departure_data_wd=arr_dep_data_h)
-grid.add_evs('Day', nevs_w, ev_type='dumb',
-             dist_wd=params_h,
-             dist_we={'s':0.8,'loc':0,'scale':2.75},
-             charging_power=charging_power_work,
-             charging_type='weekdays',
-             batt_size=batt_size,
-             arrival_departure_data_wd=arr_dep_data_w)
-times.append(time.time())
-print('Finished preprocessing, elapsed time: {} s'.format(np.round(times[-1]-times[-2],1)))
-grid.do_days()
-times.append(time.time())
-print('Finished running, elapsed time: {} s'.format(np.round(times[-1]-times[-2],1)))
-print(grid.get_global_data())
-print(grid.get_ev_data())
-grid.plot_total_load(day_ini=7, days=7)
-grid.plot_ev_load(day_ini=7, days=7)
-
-
 #%% Run for all SS
 
-dir_results = r'c:\user\U546416\Documents\PhD\Data\Simulations\Results\RandStart_EV05_W01'
+dir_results = r'c:\user\U546416\Documents\PhD\Data\Simulations\Results\ToUs_EV05_W01'
+
+
 
 # SIMULATION DATA (TIME)
 # Days, steps
@@ -151,7 +84,8 @@ batt_size = [[20, 40, 60, 80], [0.20, 0.30, 0.30, 0.20]]
 arr_dep_data_h = {'cdf_arr': arr_dep.ArrHome.cumsum(), 'cdf_dep': arr_dep.DepHome.cumsum()}
 arr_dep_data_w = {'cdf_arr': arr_dep.ArrWork.cumsum(), 'cdf_dep': arr_dep.DepWork.cumsum()}
 
-ev_type = 'randstart'
+ev_type = 'dumb'
+# available: dumb, mod, randstart, reverse
 
 #Results
 
@@ -160,12 +94,24 @@ ev_data = {}
 ev_load_day = {}
 ev_load_night = {}
 
-#%%
+outputfolder = '{}_EV{:02d}_W{:02d}'.format(ev_type, int(ev_penetration*10), int(ev_work_ratio*10))
+
+# Check that results folder exists:
+util.create_folder(dir_results, outputfolder, 'Images')
+
+#%% Run for multiple ToU overnights
 f1, ax1 = plt.subplots()
 f1.set_size_inches(7,6)
 f2, ax2 = plt.subplots()
 f2.set_size_inches(7,6)
 counter = 0
+# To set only one overnight ToU: Set start_tous = end_tous
+# to set full off-peak day (no ToU): Set everything to 0
+h_tous = 6
+start_tous = 22
+end_tous = 3
+delta_tous = (end_tous - start_tous) % 24
+
 for ss in SS.index:
     counter += 1
     if ss in global_data:
@@ -194,12 +140,17 @@ for ss in SS.index:
     
     
     grid = EV.Grid(name=ss, ndays=ndays, step=step, load=load, ss_pmax=SS.Pmax[ss], verbose=False)
-    grid.add_evs('Overnight', nevs_h, ev_type=ev_type,
+    grid.add_evs('Overnight', nevs_h, 
+                 ev_type=ev_type,
                  dist_wd=params_h, 
                  charging_power=charging_power_home,
                  charging_type='if_needed',
                  batt_size=batt_size,
-                 arrival_departure_data_wd=arr_dep_data_h)
+                 arrival_departure_data_wd=arr_dep_data_h,
+                 tou_we=False)
+    for ev in grid.evs['Overnight']:
+        ev.tou_ini = np.round((start_tous + np.random.rand(1) * delta_tous) % 24, 2)
+        ev.tou_end = (ev.tou_ini + h_tous) % 24
     grid.add_evs('Day', nevs_w, ev_type=ev_type,
                  dist_wd=params_h,
                  dist_we={'s':0.8,'loc':0,'scale':2.75},
@@ -224,12 +175,12 @@ for ss in SS.index:
     f1.savefig(dir_results + r'\Images\Total_{}.png'.format(ss))
     f2.savefig(dir_results + r'\Images\EV_{}.png'.format(ss))
     print('Total SS time: {} s'.format(np.round(times[-1]-times[-3],1)))
-    print('Total elapsed time: {} s'.format(np.round(times[-1]-times[0],1)))
+    #print('Total elapsed time: {}h{}:{}'.format(*util.sec_to_time(np.round(times[-1]-times[0],1))))
 
 # Transform outputs in DataFrames and save
 global_data = pd.DataFrame(global_data).T
-ev_data = {ss : {el + evtype : ev_data[ss][el] 
-                    for evtype in ev_data[ss]['EV_sets'] 
+ev_data = {ss : {el + '_' + ev_data[ss]['EV_sets'][i] : ev_data[ss][el][i] 
+                    for i in range(len(ev_data[ss]['EV_sets']))
                     for el in ev_data[ss] if el != 'EV_sets'} 
         for ss in ev_data}
 ev_data = pd.DataFrame(ev_data).T
