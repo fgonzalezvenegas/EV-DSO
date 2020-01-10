@@ -12,6 +12,8 @@ import matplotlib.patheffects as pe
 import scipy.stats as stats
 import datetime as dt
 import os
+import importlib
+import util
 
 # PARAMS
 
@@ -303,7 +305,7 @@ def computeDist(latlon1, latlon2):
 def sec_to_time(s):
     """ Returns the hours, minutes and seconds of a given time in secs
     """
-    return (s//3600, (s//60)%60, s%60)
+    return (int(s//3600), int((s//60)%60), (s%60))
     
 def compute_aspect_carte(lon1, lon2, lat1, lat2):
     """
@@ -313,11 +315,20 @@ def compute_aspect_carte(lon1, lon2, lat1, lat2):
     km_per_lon = computeDist([lat0, lon1], [lat0, lon2]) / abs(lon1-lon2)
     return km_per_lat / km_per_lon
 
-def create_folder(path, folder, *folders):
+def create_folder(path, *folders):
     """ Creates folder in given path
     """
-    newpath=path + r'\\' + folder + [r'\\' ]
-    if os.path.exists(newpath):
+    newpath = path + ''.join(map(str, [r'\\' + f for f in folders])) 
+    if not os.path.exists(newpath):
         os.makedirs(newpath)
 
+def self_reload(module=None):
+    """ Reloads a module. Useful for debugging and developing
+    """
+    if module == None:
+        importlib.reload(util)
+    else:
+        importlib.reload(module)
     
+def test():
+    print('chao')

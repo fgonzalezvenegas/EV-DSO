@@ -388,6 +388,7 @@ class Grid:
         h_overload = ((self.ev_load['Total'] + self.base_load) > self.ss_pmax).sum() * self.period_dur
         return {'Tot_ev_charge_MWh' : total_ev_charge,
                 'Extra_charge_MWh' : extra_charge,
+                'Base_load_MWh': self.base_load.sum() * self.period_dur,
                 'Flex_ratio' : ev_flex_ratio,
                 'Max_ev_load_MW' : max_ev_load,
                 'Max_base_load_MW' : max_base_load,
@@ -547,6 +548,8 @@ class EV:
                  tou_ini=0,
                  tou_end=0,
                  tou_we=False,
+                 tou_ini_we=0,
+                 tou_end_we=0,
                  driving_eff=0.2, 
                  batt_size=40,
                  range_anx_factor=1.5,
@@ -604,6 +607,9 @@ class EV:
         self.tou_ini = tou_ini                          # Time of Use (low tariff) start time (default=0) 
         self.tou_end = tou_end                          # Time of Use (low tariff) end time (default=0)
         self.tou_we = tou_we                            # Time of Use for weekend. If false, it's off peak the whole weekend
+        if tou_we:
+            self.tou_ini_we = tou_ini_we
+            self.tou_end_we = tou_end_we
         self.arrival_departure_data_wd = arrival_departure_data_wd
         self.arrival_departure_data_we = arrival_departure_data_we
         
@@ -698,17 +704,45 @@ class EV:
         """
         # TODO: expand to different off-peak hours during the weekend
         self.off_peak = np.ones(model.periods)
-        if self.tou_ini < self.tou_end:
-            for i in range(model.periods):
-                if not (self.tou_we and (model.times[i][2] in model.weekends)):
-                    # This checks that there is no special ToU in weekends, and that it is not the weekend
-                    if model.times[i][1] < self.tou_ini or model.times[i][1] >= self.tou_end:
-                        self.off_peak[i] = 0
-        elif self.tou_ini > self.tou_end:
-            for i in range(model.periods):
-                if not (self.tou_we and (model.times[i][2] in model.weekends)):
-                    if self.tou_end <= model.times[i][1] < self.tou_ini:
-                        self.off_peak[i] = 0
+        if self.tou_ini != self.tou_end:
+            delta_op = self.tou_end>self.tou_ini
+            # Compute one day. Assume Off peak hours are less than On peak so less modifs to 1
+            op_day = np.zeros(model.periods_day)
+            for i in range(model.periods_day):
+                if delta_op:
+                    if (self.tou_ini <= i * model.period_dur < self.tou_end):
+                        op_day[i] = 1
+                else:
+                    if not (self.tou_end <= i*model.period_dur < self.tou_ini):
+                        op_day[i] = 1
+            if self.tou_we:
+                op_day_we = np.ones(model.periods_day) 
+                delta_op = self.tou_end_we > self.tou_ini_we
+                if delta_op:
+                    if not (self.tou_ini_we <= i * model.period_dur < self.tou_end_we):
+                        op_day_we[i] = 0
+                else:
+                    if (self.tou_end_we <= i*model.period_dur < self.tou_ini_we):
+                        op_day_we[i] = 0
+            
+            for d in range(model.ndays):
+                if not (model.days[d] in model.weekends):
+                    self.off_peak[d * model.periods_day: (d+1) * model.periods_day] = op_day
+                elif model.tou_we:
+                    self.off_peak[d * model.periods_day: (d+1) * model.periods_day] = op_day_we
+#        if self.tou_ini < self.tou_end:
+#            for i in range(model.periods):
+#                if ((not self.tou_we) and (model.times[i][2] in model.weekends)):
+#                    continue
+#                    # This checks that there is no special ToU in weekends, and that it is not the weekend
+#                if model.times[i][1] < self.tou_ini or model.times[i][1] >= self.tou_end:
+#                    self.off_peak[i] = 0
+#        elif self.tou_ini > self.tou_end:
+#            for i in range(model.periods):
+#                if ((not self.tou_we) and (model.times[i][2] in model.weekends)):
+#                    continue
+#                if self.tou_end <= model.times[i][1] < self.tou_ini:
+#                        self.off_peak[i] = 0
                     
     def compute_energy_trip(self, model):
         """ Computes the energy used during the current day trips and to be charged
@@ -724,7 +758,7 @@ class EV:
         else:
             extra_trip = 0 
             if np.random.rand(1) < self.extra_trip_proba:
-                # Extra trip probability, normal distribution around 5km +- 1.5
+                # Extra trip probability, normal distribution around 5km +- 1.5 km
                 # TODO: better way to add extra trip
                 extra_trip = np.random.randn(1) * 1.5 + 5
             self.energy_trip[model.day] = ((self.dist_wd if model.days[model.day] < 5 else self.dist_we) 
@@ -815,6 +849,7 @@ class EV:
         potential[-1] = (self.departure % model.period_dur / 
                  model.period_dur * self.charging_power)
         
+        # Save in potential and off peak vectors
         self.potential[idx_tini:idx_tend+1] = potential
         self.off_peak_potential[idx_tini:idx_tend+1] = (
                 potential * self.off_peak[idx_tini:idx_tend+1])

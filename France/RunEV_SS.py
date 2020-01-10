@@ -8,7 +8,7 @@ testestest
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
-import EVmodel as EV
+import EVmodel
 import util
 import time
 
@@ -59,7 +59,7 @@ print('Finished loading, elapsed time: {} s'.format(np.round(times[-1]-times[-2]
 
 #%% Run for all SS
 
-dir_results = r'c:\user\U546416\Documents\PhD\Data\Simulations\Results\ToUs_EV05_W01'
+dir_results = r'c:\user\U546416\Documents\PhD\Data\Simulations\Results'
 
 
 
@@ -70,7 +70,7 @@ step = 15
 
 # GENERAL EV DATA
 
-times = [time.time()]
+
 # EV penetration
 ev_penetration = .5
 # EV home/work charging
@@ -85,21 +85,27 @@ arr_dep_data_h = {'cdf_arr': arr_dep.ArrHome.cumsum(), 'cdf_dep': arr_dep.DepHom
 arr_dep_data_w = {'cdf_arr': arr_dep.ArrWork.cumsum(), 'cdf_dep': arr_dep.DepWork.cumsum()}
 
 ev_type = 'dumb'
+tou = True
 # available: dumb, mod, randstart, reverse
 
-#Results
+# Results folder
+outputfolder = '{}{}_EV{:02d}_W{:02d}'.format(ev_type, '_ToU' if tou else '',int(ev_penetration*10), int(ev_work_ratio*10))
+
+# Check that results folder exists:
+util.create_folder(dir_results, outputfolder, 'Images')
+
+#%% Results
 
 global_data = {}
 ev_data = {}
 ev_load_day = {}
 ev_load_night = {}
 
-outputfolder = '{}_EV{:02d}_W{:02d}'.format(ev_type, int(ev_penetration*10), int(ev_work_ratio*10))
 
-# Check that results folder exists:
-util.create_folder(dir_results, outputfolder, 'Images')
 
 #%% Run for multiple ToU overnights
+
+
 f1, ax1 = plt.subplots()
 f1.set_size_inches(7,6)
 f2, ax2 = plt.subplots()
@@ -111,7 +117,7 @@ h_tous = 6
 start_tous = 22
 end_tous = 3
 delta_tous = (end_tous - start_tous) % 24
-
+times = [time.time()]
 for ss in SS.index:
     counter += 1
     if ss in global_data:
@@ -128,9 +134,8 @@ for ss in SS.index:
     if (nevs_h==0) or (nevs_w==0):
         continue
     # Distributions of work and home distances
-    params_h = util.compute_lognorm_cdf(hhome.loc[ss], params=True)
-    params_w = util.compute_lognorm_cdf(hwork.loc[ss], params=True)
-    
+#    params_h = util.compute_lognorm_cdf(hhome.loc[ss], params=True)
+#    params_w = util.compute_lognorm_cdf(hwork.loc[ss], params=True)
 
     # compute base load for worst week, adding 7 days of buffer on each side
     folder_profiles = r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Conso\SS_profiles\\'
@@ -139,20 +144,26 @@ for ss in SS.index:
     load = load.iloc[0:-1]
     
     
-    grid = EV.Grid(name=ss, ndays=ndays, step=step, load=load, ss_pmax=SS.Pmax[ss], verbose=False)
+    grid = EVmodel.Grid(name=ss, ndays=ndays, step=step, load=load, ss_pmax=SS.Pmax[ss], verbose=False)
     grid.add_evs('Overnight', nevs_h, 
                  ev_type=ev_type,
-                 dist_wd=params_h, 
+                 dist_wd=hhome.loc[ss], 
                  charging_power=charging_power_home,
                  charging_type='if_needed',
                  batt_size=batt_size,
                  arrival_departure_data_wd=arr_dep_data_h,
-                 tou_we=False)
-    for ev in grid.evs['Overnight']:
-        ev.tou_ini = np.round((start_tous + np.random.rand(1) * delta_tous) % 24, 2)
-        ev.tou_end = (ev.tou_ini + h_tous) % 24
+                 tou_we=True)
+    
+    if tou:
+        print('\tToU-ing')
+        t0 = time.time()
+        for ev in grid.evs['Overnight']:
+            ev.tou_ini = np.round((start_tous + np.random.rand(1) * delta_tous) % 24, 2)
+            ev.tou_end = (ev.tou_ini + h_tous) % 24
+            ev.set_off_peak(grid)
+        print('\tFinished ToU-ing, elapsed time: {} s'.format(np.round(time.time()-t0,1)))
     grid.add_evs('Day', nevs_w, ev_type=ev_type,
-                 dist_wd=params_h,
+                 dist_wd=hwork.loc[ss],
                  dist_we={'s':0.8,'loc':0,'scale':2.75},
                  charging_power=charging_power_work,
                  charging_type='weekdays',
@@ -172,11 +183,11 @@ for ss in SS.index:
     ax2.clear()
     grid.plot_total_load(day_ini=7, days=7, ax=ax1, title='Total load at ' + ss)
     grid.plot_ev_load(day_ini=7, days=7, ax=ax2, title='EV load at ' + ss)
-    f1.savefig(dir_results + r'\Images\Total_{}.png'.format(ss))
-    f2.savefig(dir_results + r'\Images\EV_{}.png'.format(ss))
+    f1.savefig(dir_results + r'\\' + outputfolder + r'\Images\Total_{}.png'.format(ss))
+    f2.savefig(dir_results + r'\\' + outputfolder + r'\Images\EV_{}.png'.format(ss))
     print('Total SS time: {} s'.format(np.round(times[-1]-times[-3],1)))
-    #print('Total elapsed time: {}h{}:{}'.format(*util.sec_to_time(np.round(times[-1]-times[0],1))))
-
+    print('Total elapsed time: {:02d}h{:02d}:{:02.1f}'.format(*util.sec_to_time(np.round(times[-1]-times[0],1))))
+    #break
 # Transform outputs in DataFrames and save
 global_data = pd.DataFrame(global_data).T
 ev_data = {ss : {el + '_' + ev_data[ss]['EV_sets'][i] : ev_data[ss][el][i] 
@@ -187,7 +198,7 @@ ev_data = pd.DataFrame(ev_data).T
 
 ev_load_day = pd.DataFrame(ev_load_day, index=load.index[0:int(7*24*60/step)])
 ev_load_night = pd.DataFrame(ev_load_night, index=load.index[0:int(7*24*60/step)])
-global_data.to_csv(dir_results + r'\global_data.csv')
-ev_data.to_csv(dir_results + r'\ev_data.csv')
-ev_load_day.to_csv(dir_results + r'\ev_load_day.csv')
-ev_load_night.to_csv(dir_results + r'\ev_load_night.csv')
+global_data.to_csv(dir_results  + r'\\' + outputfolder + r'\global_data.csv')
+ev_data.to_csv(dir_results  + r'\\'+ outputfolder + r'\ev_data.csv')
+ev_load_day.to_csv(dir_results + r'\\' + outputfolder + r'\ev_load_day.csv')
+ev_load_night.to_csv(dir_results + r'\\' + outputfolder + r'\ev_load_night.csv')
