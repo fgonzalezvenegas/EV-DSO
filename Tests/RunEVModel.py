@@ -391,6 +391,72 @@ grid0.plot_evload(ax=ax0, ylim=3.7e3, title='Not Modulated')
 grid1.plot_evload(ax=ax1, ylim=3.7e3, title='Modulated, Pmin 0.6')
 grid2.plot_evload(ax=ax2, ylim=3.7e3, title='Modulated, Pmin 0.0')
 
+#%% Four kinds of EV charging
+
+ev_data00 = {'dumb': {'type' : 'dumb',
+                 'n_ev' : 1000,
+                 'other': {
+                         'charging_type' : 'all_days',
+                         'pmin_charger' : 1,
+                         'batt_size' : 24}}}
+ev_data10 = {'dumb': {'type' : 'mod',
+                 'n_ev' : 1000,
+                 'other': {
+                         'charging_type' : 'all_days',
+                         'pmin_charger' : 0.2,
+                         'batt_size' : 24}}}
+ev_data20 = {'dumb': {'type' : 'randstart',
+                 'n_ev' : 1000,
+                 'other': {
+                         'charging_type' : 'all_days',
+                         'pmin_charger' : 0,
+                         'batt_size' : 24}}}                           
+                         
+ev_data0 = {'dumb': {'type' : 'dumb',
+                 'n_ev' : 1000,
+                 'other': {
+                         'charging_type' : 'all_days',
+                         'pmin_charger' : 1,
+                         'batt_size' : 24,
+                         'tou_ini' : 23,
+                         'tou_end' : 6}}}
+ev_data1 = {'dumb': {'type' : 'mod',
+                 'n_ev' : 1000,
+                 'other': {
+                         'charging_type' : 'all_days',
+                         'pmin_charger' : 0.6,
+                         'batt_size' : 24,
+                         'tou_ini' : 23,
+                         'tou_end' : 6}}}
+ev_data2 = {'dumb': {'type' : 'mod',
+                 'n_ev' : 1000,
+                 'other': {
+                         'charging_type' : 'all_days',
+                         'pmin_charger' : 0,
+                         'batt_size' : 24,
+                         'tou_ini' : 23,
+                         'tou_end' : 6}}}     
+
+grid00 = evmodel.Grid(ev_data00, ndays=ndays, step=step)
+grid00.do_days()
+grid10 = evmodel.Grid(ev_data10, ndays=ndays, step=step)
+grid10.do_days()
+grid20 = evmodel.Grid(ev_data20, ndays=ndays, step=step)
+grid20.do_days()
+grid0 = evmodel.Grid(ev_data0, ndays=ndays, step=step)
+grid0.do_days()
+grid1 = evmodel.Grid(ev_data1, ndays=ndays, step=step)
+grid1.do_days()
+grid2 = evmodel.Grid(ev_data2, ndays=ndays, step=step)
+grid2.do_days()
+f, ([ax00, ax10, ax20], [ax0, ax1, ax2]) = plt.subplots(2,3)
+grid00.plot_evload(ax=ax00, ylim=3.7e3, title='Not Modulated')
+grid10.plot_evload(ax=ax10, ylim=3.7e3, title='Modulated, Pmin 0.6')
+grid20.plot_evload(ax=ax20, ylim=3.7e3, title='Modulated, Pmin 0.0')
+grid0.plot_evload(ax=ax0, ylim=3.7e3, title='Not Modulated')
+grid1.plot_evload(ax=ax1, ylim=3.7e3, title='Modulated, Pmin 0.6')
+grid2.plot_evload(ax=ax2, ylim=3.7e3, title='Modulated, Pmin 0.0')
+
 
 #%% Load Data - real sims
 import model as evmodel

@@ -84,8 +84,8 @@ batt_size = [[20, 40, 60, 80], [0.20, 0.30, 0.30, 0.20]]
 arr_dep_data_h = {'cdf_arr': arr_dep.ArrHome.cumsum(), 'cdf_dep': arr_dep.DepHome.cumsum()}
 arr_dep_data_w = {'cdf_arr': arr_dep.ArrWork.cumsum(), 'cdf_dep': arr_dep.DepWork.cumsum()}
 
-ev_type = 'dumb'
-tou = True
+ev_type = 'mod'
+tou = False
 # available: dumb, mod, randstart, reverse
 
 # Results folder
@@ -147,7 +147,7 @@ for ss in SS.index:
     grid = EVmodel.Grid(name=ss, ndays=ndays, step=step, load=load, ss_pmax=SS.Pmax[ss], verbose=False)
     grid.add_evs('Overnight', nevs_h, 
                  ev_type=ev_type,
-                 dist_wd=hhome.loc[ss], 
+                 dist_wd={'cdf': hhome.loc[ss].cumsum()/hhome.loc[ss].sum()}, 
                  charging_power=charging_power_home,
                  charging_type='if_needed',
                  batt_size=batt_size,
@@ -163,7 +163,7 @@ for ss in SS.index:
             ev.set_off_peak(grid)
         print('\tFinished ToU-ing, elapsed time: {} s'.format(np.round(time.time()-t0,1)))
     grid.add_evs('Day', nevs_w, ev_type=ev_type,
-                 dist_wd=hwork.loc[ss],
+                 dist_wd={'cdf': hwork.loc[ss].cumsum()/hwork.loc[ss].sum()},
                  dist_we={'s':0.8,'loc':0,'scale':2.75},
                  charging_power=charging_power_work,
                  charging_type='weekdays',

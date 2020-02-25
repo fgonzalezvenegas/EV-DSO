@@ -11,7 +11,7 @@ Created on Tue Feb 26 11:48:38 2019
 #import numpy as np
 from matplotlib import pyplot as plt
 import pandas as pd
-import mobility as mb
+#import mobility as mb
 import numpy as np
 
 
@@ -29,22 +29,24 @@ file_conso_pu = 'conso_all_pu.csv'
 
 # Init Tgeo
 Tgeo = pd.read_csv('c:/user/U546416/Documents/PhD/Data/Mobilité/geoRefs.csv', 
-                 engine='python', delimiter=';', index_col=0)
+                 engine='python', delimiter=',', index_col=0)
 # Remove Fr hors metropolitaine
 Tgeo = Tgeo[(Tgeo.Status != 'X') & (Tgeo.Dep != '97') & (Tgeo.Dep != '2A') & (Tgeo.Dep != '2B')]
 #%% Init histograms of distribution of distances per commune
 indexes = ['CODE', 'ZE', 'Dep', 'UU', 'Status']
 Tdreal = pd.read_csv(folder + input_Tdreal, engine='python', index_col=indexes)
-Thome = pd.read_csv(folder + input_Thome, engine='python', index_col=indexes)
+Thome = pd.read_csv(folder + input_Thome, engine='python', index_col='CODE')
 Twork = pd.read_csv(folder + input_Twork, engine='python', index_col=indexes)
 
-# Init conso data
-conso_data = pd.read_csv(folder + f_data + file_conso, 
-                         engine='python', index_col=0)
-conso_data_pu = pd.read_csv(folder + f_data + file_conso_pu, 
-                         engine='python', index_col=0)
+## Init conso data
+#conso_data = pd.read_csv(folder + f_data + file_conso, 
+#                         engine='python', index_col=0)
+#conso_data_pu = pd.read_csv(folder + f_data + file_conso_pu, 
+#                         engine='python', index_col=0)
 
-
+#%% Add CAT_R to Thome index
+Thome['CATAU_R'] = Tgeo.CATAU_R.loc[Thome.index]
+Thome = Thome.set_index([Thome.index, 'CATAU_R'] + indexes[1:])
 #%% Plot distribution of overall distances
 step = 2
 nbins = 50
@@ -123,6 +125,25 @@ ax1.set_xlim([0,100])
 ax1.set_ylim([0,0.17])
 ax1.set_ylabel('Densité')
 ax1.set_xlabel('Distance [km]')
+
+#%% Plot for the CAT Aire Urbaine:
+Thau = Thome.sum(level='CATAU_R')
+CatsAU = ['Urban', 'Periurban', 'Rural'] # 'Small_Pole' is out of this graph
+# computing histograms of AU in per unit
+Thau = (Thau.T / Thau.sum(axis=1)).T
+# Plot
+f3, ax1 = plt.subplots(1, 1, sharey=True)
+sp = ['       ', ' ', '        ']
+means_au = (Thau * x).sum(axis=1) 
+for i in range(len(CatsAU)):
+    ax1.plot(x,Thau.loc[CatsAU[i]], label=CatsAU[i] + ', ' + sp[i] + 'Mean=%2.1f km' %means_au.loc[CatsAU[i]])
+plt.legend()
+ax1.set_title('Commuting distance distribution')
+ax1.set_xlim([0,100])
+ax1.set_ylim([0,0.17])
+ax1.set_ylabel('Density')
+ax1.set_xlabel('Distance [km]')
+
 #%% Plot mean distance
 # Obsolete : Use Polygons!
 step = 2

@@ -7,8 +7,9 @@ Run 1000 EVs and do histograms of # of charging sessions
 
 import numpy as np
 from matplotlib import pyplot as plt
-import EVmodel as evmodel
+import EVmodel
 import scipy.stats as stats
+import util
 
 ndays = 7
 step = 15
@@ -83,7 +84,8 @@ b_end = 100
 batts = np.arange(b_start, b_end, 1)
 
 ev_data = {'charging_power' : 7.2,
-           'charging_type' : 'if_needed_sunday'}
+           'charging_type' : 'if_needed_sunday',
+           'target_soc' : 1}
 
 grid = evmodel.Grid(ndays=ndays, step=step, name='Grid', verbose=False)
 grid.add_evs(nameset='Std', n_evs=1000, ev_type='dumb', **ev_data)
@@ -270,4 +272,61 @@ ax.set_xlabel('Battery size [kWh]')
 ax.set_ylabel('$FF_{V1G}$')
 plt.grid(linestyle='--')
 plt.legend()
+
+#%% Run charging sessions for Different target SOCs
+
+print('iterating')
+ev_data = {'charging_power' : 7.2,
+           'charging_type' : 'if_needed_sunday'
+           }
+
+grid1 = EVmodel.Grid(ndays=ndays, step=step, name='Grid', verbose=False)
+grid08 = EVmodel.Grid(ndays=ndays, step=step, name='Grid', verbose=False)
+grid05 = EVmodel.Grid(ndays=ndays, step=step, name='Grid', verbose=False)
+
+grid1.add_evs(nameset='Std', n_evs=1000, ev_type='dumb', **ev_data, target_soc=1)
+grid08.add_evs(nameset='Std', n_evs=1000, ev_type='dumb', **ev_data, target_soc=0.8)
+grid05.add_evs(nameset='Std', n_evs=1000, ev_type='dumb', **ev_data, target_soc=0.5)
+
+
+hists1 = iterate_batt_size(grid1, b_start, b_end)
+hists08 = iterate_batt_size(grid08, b_start, b_end)
+hists05 = iterate_batt_size(grid05, b_start, b_end)
+
+
+#%%
+#util.self_reload(EVmodel)
+#import EVmodel
+#print('iterating')
+#ev_data = {'charging_power' : 7.2,
+#           'charging_type' : 'if_needed_sunday'
+#           }
+#
+##grid1 = EVmodel.Grid(ndays=ndays, step=step, name='Grid', verbose=False)
+#grid08 = EVmodel.Grid(ndays=ndays, step=step, name='Grid', verbose=False)
+##grid05 = EVmodel.Grid(ndays=ndays, step=step, name='Grid', verbose=False)
+#
+##grid1.add_evs(nameset='Std', n_evs=1000, ev_type='dumb', **ev_data, target_soc=1)
+#grid08.add_evs(nameset='Std', n_evs=1000, ev_type='dumb', **ev_data, target_soc=0.8)
+##grid05.add_evs(nameset='Std', n_evs=1000, ev_type='dumb', **ev_data, target_soc=0.5)
+#
+#
+##hists1 = iterate_batt_size(grid1, b_start, b_end)
+#hists08 = iterate_batt_size(grid08, b_start, b_end)
+#hists05 = iterate_batt_size(grid05, b_start, b_end)
+#%% Plot n_th charging sessions
+f, ax = plt.subplots()
+nthch = 2
+ax.plot(batts, hists1.cumsum(axis=1)[:,nthch-1]*100, label='Target SOC=1.0')
+ax.plot(batts, hists08.cumsum(axis=1)[:,nthch-1]*100, label='Target SOC=0.8')
+ax.plot(batts, hists05.cumsum(axis=1)[:,nthch-1]*100, label='Target SOC=0.5')
+ax.set_xlim([10,100])
+ax.set_ylim([0,105])
+ax.set_xlabel('Battery size [kWh]')
+ax.set_ylabel('Percentage of EVs')
+ax.set_title('EVs charging at most {} times per week [%]'.format(nthch))
+ax.axvline(50, color='k', linestyle='--')
+ax.text(x=51, y=30, s='Peugeot e208')
+plt.legend()
+plt.grid(linestyle='--')
 

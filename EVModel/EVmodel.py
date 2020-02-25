@@ -139,6 +139,7 @@ class Grid:
                              (ex. 30-15-5min), given value: %d' % step)
         
         # General params
+        self.step = step                    # in minutes
         self.ndays = ndays
         self.periods = int(ndays * 24 * 60 / step)
         self.periods_day = int(24 * 60 / step)
@@ -178,7 +179,9 @@ class Grid:
             raise ValueError('Invalid EV type "{}" \
                              Accepted types are: "dumb", "mod", "randstart", "reverse"'.format(ev_type))
         ev_fx = ev_types[ev_type]
-       
+        
+        if nameset in self.types_evs:
+            raise ValueError('EV Nameset "{}" already in the grid. Not created.'.format(nameset))            
         evset = []
         if self.verbose:
             print('Creating EV set {} containing {} {} EVs'.format(
@@ -415,13 +418,17 @@ class Grid:
         avg_d = [np.mean([ev.dist_wd 
                          for ev in self.evs[t]])
                 for t in types]
+        avg_plugin = [np.mean([ev.ch_status.sum() 
+                         for ev in self.evs[t]]) / self.ndays
+                for t in types]
         return {'EV_sets': types,
                 'n_EVs': nevs,
                 'EV_charge_MWh': charge,
                 'extra_charge' : extra_charge,
                 'Flex_ratio': flex_ratio,
                 'max_load': max_load,
-                'Avg_daily_dist' : avg_d}
+                'Avg_daily_dist' : avg_d,
+                'Avg_plug_in_ratio': avg_plugin}
         
         
     def do_dist_hist(self, weekday=True, **plot_params):
@@ -540,7 +547,9 @@ class EV:
     bins_dist = np.linspace(0, 100, num=51)
     def __init__(self, model, name, 
                  dist_wd=0,
-                 dist_we=0, 
+                 dist_we=0,
+                 var_dist_wd=0,
+                 var_dist_we=0,
                  charging_power=3.6, 
                  charging_eff=0.95,
                  discharging_eff=0.95,
@@ -558,7 +567,11 @@ class EV:
                  arrival_departure_data_we = {'mu_arr':16, 'mu_dep':8,
                                               'std_arr':2, 'std_dep':2},
                  bus='',
-                 n_if_needed=100):
+                 n_if_needed=0,
+                 target_soc=1,
+                 ovn=True,
+                 up_dn_flex=False,
+                 flex_time=30):
         """Instantiates EV object:
            name id
            sets home-work distance [km]
@@ -574,7 +587,9 @@ class EV:
         # Sets distance for weekday and weekend one-way trips
         # dist_wx can be a {} with either 's', 'm', 'loc' for lognorm params or with 'cdf', 'bins'
         self.dist_wd = self.set_dist(dist_wd)
-        self.dist_we = self.set_dist(dist_we)
+        self.dist_we = self.set_dist(dist_we) 
+        self.var_dist_wd = var_dist_wd
+        self.var_dist_we = var_dist_we
         # Discrete random distribution (non correlated) for battery & charging power
         if type(charging_power) is int or type(charging_power) is float:
             self.charging_power = charging_power
@@ -592,18 +607,21 @@ class EV:
         self.discharging_eff = discharging_eff          # Discharging efficiency, in pu
         self.driving_eff = driving_eff                  # Driving efficiency kWh / km
         self.min_soc = 0.2                              # Min SOC of battery to define plug-in
-        self.max_soc = 0.8                              # Max SOC of battery to define plug-in
+        self.max_soc = 1                                # Max SOC of battery to define plug-in
+        self.target_soc = target_soc                    # Target SOC for charging process
         self.n_trips = 2                                # Number of trips per day (Go and come back)
         self.extra_trip_proba = extra_trip_proba        # probability of extra trip
         if not charging_type in ['if_needed', 'if_needed_sunday', 'all_days', 'if_needed_prob', 'weekdays']:
             ValueError('Invalid charging type %s' %charging_type) 
         self.charging_type = charging_type              # Charging behavior (every day or not)
-        if charging_type in ['if_needed', 'if_needed_prob']:
+        if charging_type in ['if_needed_weekend', 'if_needed_prob']: # Forced charging on Friday, Saturday or Sunday
             self.forced_day = np.random.randint(low=0,high=3,size=1)+4
         elif charging_type == 'if_needed_sunday':
             self.forced_day = 6
+        else:
+            self.forced_day = 8                         # No forced day 
         self.range_anx_factor = range_anx_factor        # Range anxiety factor for "if needed" charging
-        self.n_if_needed = n_if_needed                  # Factor for probabilitic "if needed" charging. High means low plug in rate, low means high plug in rate
+        self.n_if_needed = n_if_needed                  # Factor for probabilitic "if needed" charging. High means high plug in rate, low means low plug in rate
         self.tou_ini = tou_ini                          # Time of Use (low tariff) start time (default=0) 
         self.tou_end = tou_end                          # Time of Use (low tariff) end time (default=0)
         self.tou_we = tou_we                            # Time of Use for weekend. If false, it's off peak the whole weekend
@@ -612,13 +630,26 @@ class EV:
             self.tou_end_we = tou_end_we
         self.arrival_departure_data_wd = arrival_departure_data_wd
         self.arrival_departure_data_we = arrival_departure_data_we
+        self.ovn = ovn                                  # Overnight charging Bool
+        self.up_dn_flex = up_dn_flex                    # Bool to compute 'physical realisations' of flexibility 
+                                                        # according to baselines: mean traj, immediate, end charging
+        if up_dn_flex:
+            if flex_time % model.step > 0:
+                raise ValueError('Flexibility time [{} minutes] should be a ' +
+                                 'multiple of model.step [{} minutes]'.format(flex_time, model.step))
+            self.flex_time = flex_time                  # Time (minutes) for which the flex needs to be available
         
         # DERIVED PARAMS
         self.compute_derived_params(model)
+        # Correct target SOC to minimum charged energy
+        if self.target_soc < 1:
+            required_min_soc = float(min(self.dist_wd * self.n_trips * self.range_anx_factor * self.driving_eff / self.batt_size, 1))
+            if required_min_soc > self.target_soc:
+                self.target_soc = required_min_soc
         
         # Grid Params
         self.bus = ''
-
+        
         
         # RESULTS/VARIABLES
         self.soc_ini = np.zeros(model.ndays)        #list of SOC ini at each day (of charging session)
@@ -647,6 +678,7 @@ class EV:
         s=0.736
         scale=np.exp(2.75)
         loc=0
+        
         if type(data_dist) == dict:
             if 's' in data_dist:
                 # Data as scipy.stats.lognorm params
@@ -678,26 +710,36 @@ class EV:
                               std_arr = 2, std_dep = 2):
         """ Sets arrival and departure times
         """
-        if type(cdf_arr) == int:
-            self.arrival = np.random.randn(1) * std_arr + mu_arr
-        else:
-            self.arrival = random_from_cdf(cdf_arr, bins_hours)
-        if type(cdf_dep) == int:
-            self.departure = np.random.randn(1) * std_dep + mu_dep
-        else:
-            self.departure = random_from_cdf(cdf_dep, bins_hours)
-        self.dt = (self.departure - self.arrival if self.departure > self.arrival
-                       else self.departure + 24 - self.arrival)
+        dt = 0
+        while dt < 4:
+            if type(cdf_arr) == int:
+                self.arrival = np.random.randn(1) * std_arr + mu_arr
+            else:
+                self.arrival = random_from_cdf(cdf_arr, bins_hours)
+            if type(cdf_dep) == int:
+                self.departure = np.random.randn(1) * std_dep + mu_dep
+            else:
+                self.departure = random_from_cdf(cdf_dep, bins_hours)
+            dt = (self.departure - self.arrival if not self.ovn
+                           else self.departure + 24 - self.arrival)
+        self.dt = dt
         
     def set_ch_vector(self, model):
         # Grid view
-        self.charging = np.zeros(model.periods) # Charging power at time t 
-        self.off_peak_potential = np.zeros(model.periods) # Connected and chargeable power (only off-peak period)
-        self.potential = np.zeros(model.periods) # Connected power at time t
-        self.up_flex = np.zeros(model.periods) # Battery flex capacity, upper bound
-        self.dn_flex = np.zeros(model.periods) # Battery flex capacity, lower bound (assumes bidir charger)
-        self.mean_flex_traj = np.zeros(model.periods) # Mean trajectory to be used to comupte up & dn flex
-        self.soc = np.zeros(model.periods) # SOC at time t
+        self.charging = np.zeros(model.periods)             # Charging power at time t 
+        self.off_peak_potential = np.zeros(model.periods)   # Connected and chargeable power (only off-peak period)
+        self.potential = np.zeros(model.periods)            # Connected power at time t
+        self.up_flex = np.zeros(model.periods)              # Battery flex capacity, upper bound
+        self.dn_flex = np.zeros(model.periods)              # Battery flex capacity, lower bound (assumes bidir charger)
+        self.mean_flex_traj = np.zeros(model.periods)       # Mean trajectory to be used to compute up & dn flex
+        self.soc = np.zeros(model.periods)                  # SOC at time t
+        if self.up_dn_flex:                                 # kW of flexibility for self.flex_time minutes, for diffs baselines
+            self.up_flex_kw_meantraj =  np.zeros(model.periods)
+            self.up_flex_kw_immediate =  np.zeros(model.periods)
+            self.up_flex_kw_delayed =  np.zeros(model.periods)
+            self.dn_flex_kw_meantraj =  np.zeros(model.periods)
+            self.dn_flex_kw_immediate =  np.zeros(model.periods)
+            self.dn_flex_kw_delayed =  np.zeros(model.periods)
    
     def set_off_peak(self, model):
         """ Sets vector for off-peak period (EV will charge only during this period)
@@ -728,7 +770,7 @@ class EV:
             for d in range(model.ndays):
                 if not (model.days[d] in model.weekends):
                     self.off_peak[d * model.periods_day: (d+1) * model.periods_day] = op_day
-                elif model.tou_we:
+                elif self.tou_we:
                     self.off_peak[d * model.periods_day: (d+1) * model.periods_day] = op_day_we
 #        if self.tou_ini < self.tou_end:
 #            for i in range(model.periods):
@@ -749,7 +791,9 @@ class EV:
         in the current session.
         """
         # TODO: extend to add stochasticity
-        dist = (self.dist_wd if model.days[model.day] < 5 else self.dist_we)
+        dist = (self.dist_wd + max(0, np.random.normal() * self.var_dist_wd) 
+                    if model.days[model.day] < 5 
+                    else self.dist_we + max(0, np.random.normal() * self.var_dist_we) )
         if dist * self.n_trips * self.driving_eff > self.batt_size:
             #This means that home-work trip is too long to do it without extra charge, 
             # so forced work charging (i.e one trip)
@@ -813,16 +857,13 @@ class EV:
                 return False
             if self.n_if_needed >=100:
                 # Deterministic case, where if it is not needed, no prob of charging
-                return False
+                return True
+            # If n_if_needed = 0, deterministic If_needed
             # else: Probabilistic charging: higher proba if low SOC
             # n_if_needed == 1 is a linear probability
             p = np.random.rand(1)
-            p_cut = ((self.max_soc - self.soc_ini[model.day]) / (self.max_soc - min_soc_trip)) ** self.n_if_needed
+            p_cut = 1-((self.soc_ini[model.day] - min_soc_trip) / (self.max_soc - min_soc_trip)) ** self.n_if_needed
             return p < p_cut
-
-        
-
-    
 
     def do_charging(self, model):
         """ Computes charging potential and calls charging function
@@ -858,16 +899,28 @@ class EV:
         self.compute_up_dn_flex(model, idx_tini, idx_tend)
         self.compute_charge(model, idx_tini, idx_tend)
         self.compute_soc_end(model, idx_tend)
+        if self.up_dn_flex:
+            self.compute_up_dn_flex_kw(model, idx_tini, idx_tend)
     
+    def do_zero_charge(self, model, idx_tini, idx_tend):
+        """ Does a default 0 charge. Used in case SOC_ini > target_soc
+        """
+        self.charged_energy[model.day] = 0
+        self.soc[idx_tini:idx_tend+1] = self.soc_ini[model.day]
+        self.charging[idx_tini:idx_tend+1] = 0
+            
     def compute_charge(self, model, idx_tini, idx_tend):
         """ do default charge: dumb
         This function should be extended by classes to do smart charging algos
         """
+        if self.soc_ini[model.day] >= self.target_soc:
+            self.do_zero_charge(model, idx_tini, idx_tend)
+            return
         # off peak potential in "per unit" of charging power 
         opp = self.off_peak_potential[idx_tini:idx_tend+1]
         
         # SOC is computed as the cumulative sum of charged energy  (Potential[pu] * Ch_Power*Efficiency*dt / batt_size) 
-        soc = (opp.cumsum() * self.soc_eff_per_period + self.soc_ini[model.day]).clip(0,1)
+        soc = (opp.cumsum() * self.soc_eff_per_period + self.soc_ini[model.day]).clip(0, self.target_soc)
         # charging power
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
         
@@ -888,19 +941,69 @@ class EV:
         potential = pu_pot * self.charging_power
         #Soc up and down
         m_soc = min(self.soc_ini[model.day], self.min_soc)
+        target = max(self.target_soc, self.soc_ini[model.day])
         
         soc_up = (potential.cumsum() * self.soc_eff_per_period  + self.soc_ini[model.day]).clip(0,1)
         soc_dn = (-potential.cumsum() * self.soc_v2geff_per_period + self.soc_ini[model.day]).clip(m_soc,1)
         
-        soc_end = soc_up[-1]
-        downwards_soc = np.concatenate([[soc_end], soc_end - potential[:-1][::-1].cumsum() * self.soc_eff_per_period])[::-1]
+        soc_end = min(soc_up[-1], target)
+        target_v2g = min(soc_up[-1], self.target_soc)
+        downwards_soc = np.concatenate([[target_v2g], target_v2g - potential[:-1][::-1].cumsum() * self.soc_eff_per_period])[::-1]
         soc_dn = np.maximum(soc_dn, downwards_soc)
         
         avg_ch_pu = (soc_end - self.soc_ini[model.day]) / (self.dt / model.period_dur)
         
         self.up_flex[idx_tini:idx_tend+1] = soc_up * self.batt_size
         self.dn_flex[idx_tini:idx_tend+1] = soc_dn * self.batt_size
-        self.mean_flex_traj[idx_tini:idx_tend+1] = (self.soc_ini[model.day] + pu_pot.cumsum() * avg_ch_pu) * self.batt_size         
+        self.mean_flex_traj[idx_tini:idx_tend+1] = (self.soc_ini[model.day] + pu_pot.cumsum() * avg_ch_pu) * self.batt_size
+
+    def compute_up_dn_flex_kw(self, model, idx_tini, idx_tend):
+        """ Computes up and down flex in terms of power [kW], to be delivered according to diffs baselines
+        """
+        # Flex time, in model steps
+        flex_steps = int(self.flex_time / model.step)
+            
+        # Upper bounds and lower bounds on SOC, considering the flex_steps shift:
+        soc_end = min(self.soc[idx_tend], self.target_soc) * self.batt_size
+        soc_ini = self.soc_ini[model.day] * self.batt_size
+        low_bound = np.concatenate((self.dn_flex[idx_tini+(flex_steps-1):idx_tend+1], 
+                                   np.ones(flex_steps-1) * soc_end))  
+        high_bound = np.concatenate((self.up_flex[idx_tini+(flex_steps-1):idx_tend+1], 
+                                    np.ones(flex_steps-1) * self.batt_size)) # Max high bound is always max batt_size
+        
+        # SOC baselines:
+        minmax_soc_batt = max(self.soc_ini[model.day], self.target_soc) * self.batt_size
+        
+        len_steps = idx_tend - idx_tini + 1
+        mean_traj = np.concatenate(([soc_ini],self.mean_flex_traj[idx_tini:idx_tend]))
+        immediate = np.min([np.concatenate(([soc_ini], self.up_flex[idx_tini:idx_tend])), 
+                            np.ones(len_steps) * minmax_soc_batt], axis=0)
+        delayed = np.max([np.concatenate(([soc_ini], self.dn_flex[idx_tini:idx_tend])), 
+                          np.ones(len_steps) * self.soc_ini[model.day] * self.batt_size], axis=0)
+            
+            
+        # Up and down kWs based on given battery trajectories:
+        kwh_to_kw_up = 1/((self.flex_time / 60) * self.charging_eff)
+        kwh_to_kw_dn = 1/(self.flex_time / 60) * self.discharging_eff
+        
+        self.up_flex_kw_meantraj[idx_tini:idx_tend+1]  = ((high_bound-mean_traj) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
+        self.up_flex_kw_immediate[idx_tini:idx_tend+1] = ((high_bound-immediate) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
+        self.up_flex_kw_delayed[idx_tini:idx_tend+1]   = ((high_bound-delayed) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
+        self.dn_flex_kw_meantraj[idx_tini:idx_tend+1]  = ((low_bound-mean_traj) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
+        self.dn_flex_kw_immediate[idx_tini:idx_tend+1] = ((low_bound-immediate) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
+        self.dn_flex_kw_delayed[idx_tini:idx_tend+1]   = ((low_bound-delayed) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
+        
+#        # 
+#        
+#        plt.subplots()
+#        plt.plot(low_bound, label='low_bound')
+#        plt.plot(high_bound, label='high')
+#        plt.plot(mean_traj, label='mean')
+#        plt.plot(immediate, label='immediate')
+#        plt.plot(delayed, label='delayed')
+#        plt.legend()
+
+        
             
     def compute_soc_end(self, model, idx_tend=False):
         """ Calculates SOC at the end of the charging session
@@ -948,10 +1051,12 @@ class EV_Modulated(EV):
     def compute_charge(self, model, idx_tini, idx_tend):
         """ compute Modulated charge
         """
-
+        if self.soc_ini[model.day] >= self.target_soc:
+            self.do_zero_charge(model, idx_tini, idx_tend)
+            return
         # off peak potential in "per unit" of time step
         opp = self.off_peak_potential[idx_tini:idx_tend+1] / self.charging_power  
-        needed_soc = 1 - self.soc_ini[model.day]
+        needed_soc = self.target_soc - self.soc_ini[model.day]
         available_dt = opp.sum()                                        # in time_steps
         if available_dt == 0:
             return                                                    
@@ -986,6 +1091,9 @@ class EV_RandStart(EV):
     def compute_charge(self, model, idx_tini, idx_tend):
         """ compute random start charge
         """
+        if self.soc_ini[model.day] >= self.target_soc:
+            self.do_zero_charge(model, idx_tini, idx_tend)
+            return
         opp = self.off_peak_potential[idx_tini:idx_tend+1]
         needed_soc = 1 - self.soc_ini[model.day]
         needed_time = needed_soc / (
@@ -1024,7 +1132,9 @@ class EV_DumbReverse(EV):
     def compute_charge(self, model, idx_tini, idx_tend):
         """ compute Reverse dumb charge
         """
-
+        if self.soc_ini[model.day] >= self.target_soc:
+            self.do_zero_charge(model, idx_tini, idx_tend)
+            return
         # off peak potential in "per unit" of time step
         opp = self.off_peak_potential[idx_tini:idx_tend+1]  
         
