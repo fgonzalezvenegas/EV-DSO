@@ -171,13 +171,13 @@ class Grid:
     def add_evs(self, nameset, n_evs, ev_type, **ev_params):
         """ Initiates EVs give by the dict ev_data and other ev global params
         """
-        ev_types = {'dumb' : EV,
-                    'mod': EV_Modulated,
-                    'randstart': EV_RandStart,
-                    'reverse': EV_DumbReverse}
+        ev_types = dict(dumb = EV,
+                        mod =EV_Modulated,
+                        randstart = EV_RandStart,
+                        reverse = EV_DumbReverse)
         if not (ev_type in ev_types):
             raise ValueError('Invalid EV type "{}" \
-                             Accepted types are: "dumb", "mod", "randstart", "reverse"'.format(ev_type))
+                             Accepted types are: {}'.format(ev_type, [i for i in ev_types.keys()]))
         ev_fx = ev_types[ev_type]
         
         if nameset in self.types_evs:
@@ -195,13 +195,13 @@ class Grid:
                 
     def init_load_vector(self, load):
         """ Creates empty array for global variables"""
-        self.ev_load = {'Total': np.zeros(self.periods)}
-        self.ev_potential = {'Total': np.zeros(self.periods)}
-        self.ev_off_peak_potential = {'Total': np.zeros(self.periods)}
-        self.ev_up_flex  = {'Total': np.zeros(self.periods)}
-        self.ev_dn_flex = {'Total': np.zeros(self.periods)}
-        self.ev_mean_flex = {'Total': np.zeros(self.periods)}
-        self.ev_batt = {'Total': np.zeros(self.periods)}
+        self.ev_load = dict(Total = np.zeros(self.periods))
+        self.ev_potential = dict(Total = np.zeros(self.periods))
+        self.ev_off_peak_potential = dict(Total = np.zeros(self.periods))
+        self.ev_up_flex  = dict(Total = np.zeros(self.periods))
+        self.ev_dn_flex = dict(Total = np.zeros(self.periods))
+        self.ev_mean_flex = dict(Total = np.zeros(self.periods))
+        self.ev_batt = dict(Total = np.zeros(self.periods))
         if type(load) == int:
             #TODO: load as DataFrame?
             #no base load given
@@ -259,6 +259,7 @@ class Grid:
     def compute_agg_data(self) :    
         """ Computes aggregated charging per type of EV and then total for the grid in MW
         """
+        total = 'Total'
         if self.verbose:
             print('Grid {}: Computing aggregated data'.format(self.name))
         for types in self.evs:
@@ -270,13 +271,13 @@ class Grid:
                 self.ev_dn_flex[types] += ev.dn_flex / util.k
                 self.ev_mean_flex[types] += ev.mean_flex_traj / util.k
                 self.ev_batt[types] += ev.soc * ev.batt_size / util.k
-        self.ev_potential['Total'] = sum([self.ev_potential[types] for types in self.evs])
-        self.ev_load['Total'] = sum([self.ev_load[types] for types in self.evs])
-        self.ev_off_peak_potential['Total'] = sum([self.ev_off_peak_potential[types] for types in self.evs])
-        self.ev_up_flex['Total'] = sum([self.ev_up_flex[types] for types in self.evs])
-        self.ev_dn_flex['Total'] = sum([self.ev_dn_flex[types] for types in self.evs])
-        self.ev_mean_flex['Total'] = sum([self.ev_mean_flex[types] for types in self.evs])
-        self.ev_batt['Total'] = sum([self.ev_batt[types] for types in self.evs])
+        self.ev_potential[total] = sum([self.ev_potential[types] for types in self.evs])
+        self.ev_load[total] = sum([self.ev_load[types] for types in self.evs])
+        self.ev_off_peak_potential[total] = sum([self.ev_off_peak_potential[types] for types in self.evs])
+        self.ev_up_flex[total] = sum([self.ev_up_flex[types] for types in self.evs])
+        self.ev_dn_flex[total] = sum([self.ev_dn_flex[types] for types in self.evs])
+        self.ev_mean_flex[total] = sum([self.ev_mean_flex[types] for types in self.evs])
+        self.ev_batt[total] = sum([self.ev_batt[types] for types in self.evs])
         
     def do_days(self, agg_data=True):
         """Iterates over days to compute charging 
@@ -379,26 +380,27 @@ class Grid:
     def get_global_data(self):
         """ Some global info
         """
-        total_ev_charge = self.ev_load['Total'].sum() * self.period_dur #MWh
-        flex_pot = self.ev_off_peak_potential['Total'].sum() * self.period_dur
+        total = 'Total'
+        total_ev_charge = self.ev_load[total].sum() * self.period_dur #MWh
+        flex_pot = self.ev_off_peak_potential[total].sum() * self.period_dur
         extra_charge = sum(ev.extra_energy.sum()
                             for ev in self.get_evs()) / util.k
         ev_flex_ratio = 1-total_ev_charge / flex_pot
-        max_ev_load = self.ev_load['Total'].max()
-        max_load = (self.ev_load['Total'] + self.base_load).max()
+        max_ev_load = self.ev_load[total].max()
+        max_load = (self.ev_load[total] + self.base_load).max()
         max_base_load = self.base_load.max()
         peak_charge = max_load / self.ss_pmax
-        h_overload = ((self.ev_load['Total'] + self.base_load) > self.ss_pmax).sum() * self.period_dur
-        return {'Tot_ev_charge_MWh' : total_ev_charge,
-                'Extra_charge_MWh' : extra_charge,
-                'Base_load_MWh': self.base_load.sum() * self.period_dur,
-                'Flex_ratio' : ev_flex_ratio,
-                'Max_ev_load_MW' : max_ev_load,
-                'Max_base_load_MW' : max_base_load,
-                'Max_load_MW' : max_load,
-                'Peak_ss_charge_pu' : peak_charge,
-                'Hours_overload' : h_overload
-                }
+        h_overload = ((self.ev_load[total] + self.base_load) > self.ss_pmax).sum() * self.period_dur
+        return dict(Tot_ev_charge_MWh = total_ev_charge,
+                    Extra_charge_MWh = extra_charge,
+                    Base_load_MWh= self.base_load.sum() * self.period_dur,
+                    Flex_ratio = ev_flex_ratio,
+                    Max_ev_load_MW = max_ev_load,
+                    Max_base_load_MW = max_base_load,
+                    Max_load_MW = max_load,
+                    Peak_ss_charge_pu = peak_charge,
+                    Hours_overload = h_overload
+                )
     
     def get_ev_data(self):
         """ EV charge data per subset
@@ -421,14 +423,14 @@ class Grid:
         avg_plugin = [np.mean([ev.ch_status.sum() 
                          for ev in self.evs[t]]) / self.ndays
                 for t in types]
-        return {'EV_sets': types,
-                'n_EVs': nevs,
-                'EV_charge_MWh': charge,
-                'extra_charge' : extra_charge,
-                'Flex_ratio': flex_ratio,
-                'max_load': max_load,
-                'Avg_daily_dist' : avg_d,
-                'Avg_plug_in_ratio': avg_plugin}
+        return dict(EV_sets = types,
+                    N_EVs = nevs,
+                    EV_charge_MWh = charge,
+                    Extra_charge = extra_charge,
+                    Flex_ratio = flex_ratio,
+                    Max_load = max_load,
+                    Avg_daily_dist = avg_d,
+                    Avg_plug_in_ratio= avg_plugin)
         
         
     def do_dist_hist(self, weekday=True, **plot_params):
@@ -563,9 +565,9 @@ class EV:
                  batt_size=40,
                  range_anx_factor=1.5,
                  extra_trip_proba=0,
-                 arrival_departure_data_wd = {},
-                 arrival_departure_data_we = {'mu_arr':16, 'mu_dep':8,
-                                              'std_arr':2, 'std_dep':2},
+                 arrival_departure_data_wd = dict(),
+                 arrival_departure_data_we = dict(mu_arr=16, mu_dep=8,
+                                                  std_arr=2, std_dep=2),
                  bus='',
                  n_if_needed=0,
                  target_soc=1,
@@ -879,6 +881,8 @@ class EV:
         idx_tend = min([delta + tend, model.periods-1])
         
         if idx_tini >= idx_tend:
+            self.do_zero_charge(model, idx_tini, idx_tend)
+            self.compute_soc_end(model, idx_tend)
             return
         # Potential charging vector
         potential = np.ones(idx_tend+1-idx_tini) * self.charging_power
@@ -958,11 +962,16 @@ class EV:
         self.mean_flex_traj[idx_tini:idx_tend+1] = (self.soc_ini[model.day] + pu_pot.cumsum() * avg_ch_pu) * self.batt_size
 
     def compute_up_dn_flex_kw(self, model, idx_tini, idx_tend):
-        """ Computes up and down flex in terms of power [kW], to be delivered according to diffs baselines
+        """ Computes up and down flex in terms of power [kW], 
+        to be delivered according to diffs battery trajectories.
+        This values are Power to be seen from the grid, not flexibility wrt a given baseline
         """
         # Flex time, in model steps
         flex_steps = int(self.flex_time / model.step)
-            
+        
+        if flex_steps > (idx_tend-idx_tini):
+            return
+        
         # Upper bounds and lower bounds on SOC, considering the flex_steps shift:
         soc_end = min(self.soc[idx_tend], self.target_soc) * self.batt_size
         soc_ini = self.soc_ini[model.day] * self.batt_size
@@ -992,7 +1001,13 @@ class EV:
         self.dn_flex_kw_meantraj[idx_tini:idx_tend+1]  = ((low_bound-mean_traj) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
         self.dn_flex_kw_immediate[idx_tini:idx_tend+1] = ((low_bound-immediate) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
         self.dn_flex_kw_delayed[idx_tini:idx_tend+1]   = ((low_bound-delayed) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
-        
+#        except:
+#            print('IDXs:' + str(idx_tini) + ' ' + str(idx_tend))
+#            print('Bounds, high : {}'.format(high_bound))
+#            print('Bounds, low : {}'.format(low_bound))
+#            print('trajs - mean: {}'.format(mean_traj))
+#            print('trajs - immediate: {}'.format(immediate))
+#            print('trajs - delayed: {}'.format(delayed))
 #        # 
 #        
 #        plt.subplots()

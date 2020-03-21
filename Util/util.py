@@ -140,6 +140,23 @@ def load_polygons_SS(year=2016, folder='', file=''):
                         engine='python', index_col=0)
     return do_polygons(SS_poly, plot=True)
 
+def load_data(data='iris'):
+    """ data=iris; BT; etc
+    """
+    if data in ['iris']:
+        return pd.read_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Conso\IRIS_enedis_2017.csv', 
+                    engine='python', index_col=0)
+    if data in ['ss', 'SS']:
+        return pd.read_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Reseau\postes_source.csv', 
+                    engine='python', index_col=0)
+    if data in ['BT', 'bt']:
+        return pd.read_csv(r'C:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Reseau\postes_BT.csv',
+                           engine='python', index_col=0)
+    
+    
+
+
+
 def list_polygons(polygons, index):
     return [p for i in index for p in polygons[i]]
 

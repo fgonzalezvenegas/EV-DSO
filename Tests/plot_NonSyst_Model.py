@@ -117,3 +117,11 @@ plt.ylabel('Probability')
 ax.set_title('Plug-in probability')
 plt.legend()
 
+#%% Plot 3 cases
+f, ax = plt.subplots()
+plt.plot([0,100],[1,1], 'b', label='Company')
+plot_one(ax, kms=40, label='Commuter MP', color='r', linestyle='--')
+plot_one(ax, n=10, kms=40, label='Commuter HP', color='g', linestyle='-.')
+ax.vlines(x=40*0.2/40*1.5*100, ymin=0, ymax=1.5, colors='k', linestyles=':')
+ax.text(s='Minimum SOC for \nnext trip (' + r'$\xi\cdot\rho$' + ')', x=40*0.2/40*1.5*100+1, y=1.05)
+ax.set_ylim([0,1.2])
