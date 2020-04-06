@@ -10,7 +10,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import EVmodel
 import scipy.stats as stats
-import time.time as time
+import time
 
 bins_dist = np.linspace(0, 100, num=51)
 dist_function = np.sin(bins_dist[:-1]/ 100 * np.pi * 2) + 1
@@ -604,6 +604,3 @@ ax1.stackplot(h, rew,color='b', labels=['Rewarded flexibility'])
 ax1.set_ylim(0,75)
 ax1.legend(loc=3)
 
-#%% 
-
-av_profs_at = 

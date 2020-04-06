@@ -29,16 +29,24 @@ pdfunc = (dist_function/sum(dist_function)).cumsum()
 bins_hours = np.linspace(0,24,num=25)
 
 
-def random_from_cdf(pdf, bins):
+def random_from_cdf(cdf, bins):
     """Returns a random bin value given a cdf.
     cdf has n values, and bins n+1, delimiting initial and final boundaries for each bin
     """
+    if cdf.max() > 1.0001 or cdf.min() < 0:
+        raise ValueError('CDF is not a valid cumulative distribution function')
     r = np.random.rand(1)
-    x = int(np.digitize(r, pdf))
-    if pdf.max() > 1.0001 or pdf.min() < 0:
-        raise ValueError('pdf is not a valid probability distribution function')
+    x = int(np.digitize(r, cdf))
     return bins[x] + np.random.rand(1) * (bins[x+1] - bins[x])
 
+def random_from_2d_pdf(pdf, bins):
+    """ Returns a 2-d random value from a joint PDF.
+    It assumes a square np.matrix as cdf. Sum of all values in the cdf is 1.
+    """
+    val1 = random_from_cdf(pdf.sum(axis=1).cumsum(), bins)
+    x = np.digitize(val1, bins)
+    val2 = random_from_cdf(pdf[x-1].cumsum() / pdf[x-1].sum(), bins)
+    return val1, val2    
 
 #def load_conso_ss_data(folder = 'c:/user/U546416/Documents/PhD/Data/Mobilité/',
 #                       folder_load = 'Data_Traitee/Conso/',
@@ -172,9 +180,11 @@ class Grid:
         """ Initiates EVs give by the dict ev_data and other ev global params
         """
         ev_types = dict(dumb = EV,
-                        mod =EV_Modulated,
+                        mod = EV_Modulated,
                         randstart = EV_RandStart,
-                        reverse = EV_DumbReverse)
+                        reverse = EV_DumbReverse,
+                        pfc = EV_pfc)
+        
         if not (ev_type in ev_types):
             raise ValueError('Invalid EV type "{}" \
                              Accepted types are: {}'.format(ev_type, [i for i in ev_types.keys()]))
@@ -235,8 +245,45 @@ class Grid:
                 '# slots {}, # EVs {}'.format(len(available_buses), len(ev)))
             raise ValueError(strg)
         for i in range(len(ev)):
-            ev[i].bus = available_buses[i] 
+            ev[i].bus = available_buses[i]
+    
+    def add_freq_data(self, freq, step_f=10, max_dev=0.2, type_f='dev', base_f=50):
+        """ Computes scaling factor for frequency response (mu).
+        Input data is frequency array, either on absolute Hz or in deviation from base frequency (50Hz as default)
+        step_f is the time step of the frequency array (in seconds)
+        saves mu array, which is the average frequency deviation for each step
+        """
+        if not type_f=='dev':
+            freq = freq - base_f
+        # number of frequency measures per simulation period
+        nsteps_period = int(self.period_dur * 3600 / step_f) 
+        
+        # if i dont have enough freq data, I repeat n_times the data
+        ntimes = len(freq) / nsteps_period
+        if ntimes < 1:
+            print('Insuficient data, replicating it')
+            freq = np.tile(freq, np.ceil(ntimes))
+        
+        mu = np.zeros(self.periods)
+        mu_up = np.zeros(self.periods)
+        mu_dn = np.zeros(self.periods)
+        dt_up = np.zeros(self.periods)
+        dt_dn = np.zeros(self.periods)
+        
+        freq = (freq / max_dev).clip(-1,1)
+        for i in range(self.periods):
+            mu[i]  = -freq[i*nsteps_period:(i+1)*nsteps_period].mean()
+            mu_up[i] = -(freq[i*nsteps_period:(i+1)*nsteps_period][freq[i*nsteps_period:(i+1)*nsteps_period]<=0]).mean()
+            mu_dn[i] = -(freq[i*nsteps_period:(i+1)*nsteps_period][freq[i*nsteps_period:(i+1)*nsteps_period]>0]).mean() 
+            dt_up[i] = (freq[i*nsteps_period:(i+1)*nsteps_period]<=0).mean()
+            dt_dn[i] = (freq[i*nsteps_period:(i+1)*nsteps_period]>0).mean()
             
+        self.mu = mu
+        self.mu_up = np.nan_to_num(mu_up)
+        self.mu_dn = np.nan_to_num(mu_dn)
+        self.dt_up = dt_up
+        self.dt_dn = dt_dn
+        
     def new_day(self):
         """ Iterates over evs to compute new day 
         """
@@ -707,23 +754,28 @@ class EV:
         """
         return np.random.choice(data_values, p=values_prob)
         
-    def set_arrival_departure(self, cdf_arr = 0, cdf_dep = 0, 
-                              mu_arr = 18, mu_dep = 8, 
-                              std_arr = 2, std_dep = 2):
+    def set_arrival_departure(self, mu_arr = 18, mu_dep = 8, 
+                                    std_arr = 2, std_dep = 2,
+                                    **kwargs):
         """ Sets arrival and departure times
         """
         dt = 0
-        while dt < 4:
-            if type(cdf_arr) == int:
-                self.arrival = np.random.randn(1) * std_arr + mu_arr
-            else:
-                self.arrival = random_from_cdf(cdf_arr, bins_hours)
-            if type(cdf_dep) == int:
-                self.departure = np.random.randn(1) * std_dep + mu_dep
-            else:
-                self.departure = random_from_cdf(cdf_dep, bins_hours)
+        if 'pdf_a_d' in kwargs:
+            self.arrival, self.departure = random_from_2d_pdf(kwargs['pdf_a_d'], bins_hours)
             dt = (self.departure - self.arrival if not self.ovn
                            else self.departure + 24 - self.arrival)
+        else:
+            while dt < 3:
+                if 'cdf_arr' in kwargs:
+                    self.arrival = random_from_cdf(kwargs['cdf_arr'], bins_hours)
+                else:
+                    self.arrival = np.random.randn(1) * std_arr + mu_arr                    
+                if 'cdf_dep' in kwargs:
+                    self.departure = random_from_cdf(kwargs['cdf_dep'], bins_hours)
+                else:
+                    self.departure = np.random.randn(1) * std_dep + mu_dep
+                dt = (self.departure - self.arrival if not self.ovn
+                      else self.departure + 24 - self.arrival)
         self.dt = dt
         
     def set_ch_vector(self, model):
@@ -736,12 +788,14 @@ class EV:
         self.mean_flex_traj = np.zeros(model.periods)       # Mean trajectory to be used to compute up & dn flex
         self.soc = np.zeros(model.periods)                  # SOC at time t
         if self.up_dn_flex:                                 # kW of flexibility for self.flex_time minutes, for diffs baselines
-            self.up_flex_kw_meantraj =  np.zeros(model.periods)
-            self.up_flex_kw_immediate =  np.zeros(model.periods)
-            self.up_flex_kw_delayed =  np.zeros(model.periods)
-            self.dn_flex_kw_meantraj =  np.zeros(model.periods)
-            self.dn_flex_kw_immediate =  np.zeros(model.periods)
-            self.dn_flex_kw_delayed =  np.zeros(model.periods)
+            self.up_flex_kw = np.zeros(model.periods)
+            self.dn_flex_kw = np.zeros(model.periods)
+#            self.up_flex_kw_meantraj =  np.zeros(model.periods)
+#            self.up_flex_kw_immediate =  np.zeros(model.periods)
+#            self.up_flex_kw_delayed =  np.zeros(model.periods)
+#            self.dn_flex_kw_meantraj =  np.zeros(model.periods)
+#            self.dn_flex_kw_immediate =  np.zeros(model.periods)
+#            self.dn_flex_kw_delayed =  np.zeros(model.periods)
    
     def set_off_peak(self, model):
         """ Sets vector for off-peak period (EV will charge only during this period)
@@ -752,6 +806,7 @@ class EV:
             delta_op = self.tou_end>self.tou_ini
             # Compute one day. Assume Off peak hours are less than On peak so less modifs to 1
             op_day = np.zeros(model.periods_day)
+            op_day_we = np.ones(model.periods_day)
             for i in range(model.periods_day):
                 if delta_op:
                     if (self.tou_ini <= i * model.period_dur < self.tou_end):
@@ -760,14 +815,14 @@ class EV:
                     if not (self.tou_end <= i*model.period_dur < self.tou_ini):
                         op_day[i] = 1
             if self.tou_we:
-                op_day_we = np.ones(model.periods_day) 
                 delta_op = self.tou_end_we > self.tou_ini_we
-                if delta_op:
-                    if not (self.tou_ini_we <= i * model.period_dur < self.tou_end_we):
-                        op_day_we[i] = 0
-                else:
-                    if (self.tou_end_we <= i*model.period_dur < self.tou_ini_we):
-                        op_day_we[i] = 0
+                for i in range(model.periods_day):
+                    if delta_op:
+                        if not (self.tou_ini_we <= i * model.period_dur < self.tou_end_we):
+                            op_day_we[i] = 0
+                    else:
+                        if (self.tou_end_we <= i*model.period_dur < self.tou_ini_we):
+                            op_day_we[i] = 0
             
             for d in range(model.ndays):
                 if not (model.days[d] in model.weekends):
@@ -920,7 +975,7 @@ class EV:
         if self.soc_ini[model.day] >= self.target_soc:
             self.do_zero_charge(model, idx_tini, idx_tend)
             return
-        # off peak potential in "per unit" of charging power 
+        # off peak potential in charging power (kW)
         opp = self.off_peak_potential[idx_tini:idx_tend+1]
         
         # SOC is computed as the cumulative sum of charged energy  (Potential[pu] * Ch_Power*Efficiency*dt / batt_size) 
@@ -962,8 +1017,8 @@ class EV:
         self.mean_flex_traj[idx_tini:idx_tend+1] = (self.soc_ini[model.day] + pu_pot.cumsum() * avg_ch_pu) * self.batt_size
 
     def compute_up_dn_flex_kw(self, model, idx_tini, idx_tend):
-        """ Computes up and down flex in terms of power [kW], 
-        to be delivered according to diffs battery trajectories.
+        """ Computes up and down flex in terms of power [kW] that can be sustained for a flex_time, 
+        to be delivered according to computed SOC trajectoy.
         This values are Power to be seen from the grid, not flexibility wrt a given baseline
         """
         # Flex time, in model steps
@@ -974,33 +1029,37 @@ class EV:
         
         # Upper bounds and lower bounds on SOC, considering the flex_steps shift:
         soc_end = min(self.soc[idx_tend], self.target_soc) * self.batt_size
-        soc_ini = self.soc_ini[model.day] * self.batt_size
+#        soc_ini = self.soc_ini[model.day] * self.batt_size
         low_bound = np.concatenate((self.dn_flex[idx_tini+(flex_steps-1):idx_tend+1], 
                                    np.ones(flex_steps-1) * soc_end))  
         high_bound = np.concatenate((self.up_flex[idx_tini+(flex_steps-1):idx_tend+1], 
                                     np.ones(flex_steps-1) * self.batt_size)) # Max high bound is always max batt_size
         
         # SOC baselines:
-        minmax_soc_batt = max(self.soc_ini[model.day], self.target_soc) * self.batt_size
-        
-        len_steps = idx_tend - idx_tini + 1
-        mean_traj = np.concatenate(([soc_ini],self.mean_flex_traj[idx_tini:idx_tend]))
-        immediate = np.min([np.concatenate(([soc_ini], self.up_flex[idx_tini:idx_tend])), 
-                            np.ones(len_steps) * minmax_soc_batt], axis=0)
-        delayed = np.max([np.concatenate(([soc_ini], self.dn_flex[idx_tini:idx_tend])), 
-                          np.ones(len_steps) * self.soc_ini[model.day] * self.batt_size], axis=0)
-            
+        soc_b = self.soc[idx_tini:idx_tend+1] * self.batt_size
+#        minmax_soc_batt = max(self.soc_ini[model.day], self.target_soc) * self.batt_size
+#        
+#        len_steps = idx_tend - idx_tini + 1
+#        mean_traj = np.concatenate(([soc_ini],self.mean_flex_traj[idx_tini:idx_tend]))
+#        immediate = np.min([np.concatenate(([soc_ini], self.up_flex[idx_tini:idx_tend])), 
+#                            np.ones(len_steps) * minmax_soc_batt], axis=0)
+#        delayed = np.max([np.concatenate(([soc_ini], self.dn_flex[idx_tini:idx_tend])), 
+#                          np.ones(len_steps) * self.soc_ini[model.day] * self.batt_size], axis=0)
+#            
             
         # Up and down kWs based on given battery trajectories:
         kwh_to_kw_up = 1/((self.flex_time / 60) * self.charging_eff)
         kwh_to_kw_dn = 1/(self.flex_time / 60) * self.discharging_eff
         
-        self.up_flex_kw_meantraj[idx_tini:idx_tend+1]  = ((high_bound-mean_traj) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
-        self.up_flex_kw_immediate[idx_tini:idx_tend+1] = ((high_bound-immediate) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
-        self.up_flex_kw_delayed[idx_tini:idx_tend+1]   = ((high_bound-delayed) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
-        self.dn_flex_kw_meantraj[idx_tini:idx_tend+1]  = ((low_bound-mean_traj) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
-        self.dn_flex_kw_immediate[idx_tini:idx_tend+1] = ((low_bound-immediate) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
-        self.dn_flex_kw_delayed[idx_tini:idx_tend+1]   = ((low_bound-delayed) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
+        self.up_flex_kw[idx_tini:idx_tend+1]  = ((high_bound-soc_b) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
+        self.dn_flex_kw[idx_tini:idx_tend+1]  = ((low_bound-soc_b) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
+        
+#        self.up_flex_kw_meantraj[idx_tini:idx_tend+1]  = ((high_bound-mean_traj) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
+#        self.up_flex_kw_immediate[idx_tini:idx_tend+1] = ((high_bound-immediate) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
+#        self.up_flex_kw_delayed[idx_tini:idx_tend+1]   = ((high_bound-delayed) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
+#        self.dn_flex_kw_meantraj[idx_tini:idx_tend+1]  = ((low_bound-mean_traj) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
+#        self.dn_flex_kw_immediate[idx_tini:idx_tend+1] = ((low_bound-immediate) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
+#        self.dn_flex_kw_delayed[idx_tini:idx_tend+1]   = ((low_bound-delayed) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
 #        except:
 #            print('IDXs:' + str(idx_tini) + ' ' + str(idx_tend))
 #            print('Bounds, high : {}'.format(high_bound))
@@ -1010,13 +1069,14 @@ class EV:
 #            print('trajs - delayed: {}'.format(delayed))
 #        # 
 #        
-#        plt.subplots()
-#        plt.plot(low_bound, label='low_bound')
-#        plt.plot(high_bound, label='high')
+        plt.subplots()
+        plt.plot(low_bound, label='low_bound')
+        plt.plot(high_bound, label='high')
+        plt.plot(soc_b, label='realisation')
 #        plt.plot(mean_traj, label='mean')
 #        plt.plot(immediate, label='immediate')
 #        plt.plot(delayed, label='delayed')
-#        plt.legend()
+        plt.legend()
 
         
             
@@ -1156,7 +1216,7 @@ class EV_DumbReverse(EV):
         
         # reverse charging
         rev_ch = (opp[::-1].cumsum()[::-1] * self.soc_eff_per_period).clip(
-                            max=1-self.soc_ini[model.day])
+                            max=self.target_soc-self.soc_ini[model.day])
         soc = self.soc_ini[model.day] + (rev_ch.max() - rev_ch)
         # charging power
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
@@ -1165,4 +1225,100 @@ class EV_DumbReverse(EV):
         self.charged_energy[model.day] = (soc[-1]-soc[0]) * self.batt_size
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
+        
+
+class EV_pfc(EV):
+    """ Simulates the participation of an EV in symetrical frequency response.
+    It follows P. Codani algorithm (see Codani PhD Thesis, 2016, U. Paris Saclay)
+    
+    """
+    def __init__(self, model, name, pop_dur=1, **params):
+        super().__init__(model, name, **params)
+        self.low_bound = 0.2  
+        self.high_bound = max(0.9, self.target_soc)
+        self.pop_dur = pop_dur # Duration of Prefered Operating Point, in Hours
+        self.steps_pop = int(pop_dur / model.period_dur)
+        self.pop = np.zeros(model.periods)
+        self.pbid = np.zeros(model.periods)
+        
+        self.boundsoc = np.zeros(model.periods)
+     
+    def POP(self, soc, dn_soc, pop_d):
+        """ Define Prefered Operating Point
+        """
+        ph = min(self.charging_power, max(((self.high_bound-soc) * self.batt_size / pop_d), -self.charging_power))
+        pl = max(-self.charging_power, min(((dn_soc - soc) * self.batt_size / pop_d), self.charging_power))
+        pop = (ph+pl)/2
+        pbid = self.charging_power - abs(pop)
+        return pop, pbid
+        
+    def compute_charge(self, model, idx_tini, idx_tend):
+        """ Compute charge given system frequency
+        """        
+        dsteps = idx_tend + 1 - idx_tini
+        # The max attainable SOC of the session
+        max_soc_d = self.soc_ini[model.day] + self.dt * self.charging_power * self.charging_eff / self.batt_size
+        opp = self.off_peak_potential[idx_tini:idx_tend+1]
+        if max_soc_d <= self.target_soc:
+            soc = (opp.cumsum() * self.soc_eff_per_period + self.soc_ini[model.day])
+            power = opp / self.soc_eff_per_period
+        else:
+            # define bounds for SOC
+            dn_soc = (self.target_soc - np.concatenate((opp[::-1].cumsum()[:0:-1] * self.soc_eff_per_period, [0]))).clip(min=self.low_bound)
+            # Frequency deviations signals from Grid
+            mus = model.mu[idx_tini:idx_tend+1]
+            mus_up = model.mu_up[idx_tini:idx_tend+1]
+            mus_dn = model.mu_dn[idx_tini:idx_tend+1] 
+            dts_up = model.dt_up[idx_tini:idx_tend+1]
+            dts_dn = model.dt_dn[idx_tini:idx_tend+1]
+            
+            
+            # charging power and soc evolution
+            power = np.zeros(dsteps)
+            soc = np.zeros(dsteps)
+            pop = np.zeros(dsteps)
+            pbid = np.zeros(dsteps)
+            
+            # Compute POP for first iteration
+            popt, pbidt =  self.POP(self.soc_ini[model.day], dn_soc[self.steps_pop], self.pop_dur)
+            for i in range(dsteps):
+            # for each Frequency time definition (1h?), define POP as Eq. 3.4 Codani Thesis. 
+                if i >0 :
+                    if (model.times[idx_tini + i][1] % self.pop_dur) == 0:
+                        k = i + self.steps_pop
+                        if k < dsteps:
+                            popt, pbidt = self.POP(soc[i-1], dn_soc[k], self.pop_dur)
+                        else:
+                            print('dt', (dsteps-i) * model.period_dur)
+                            print('soc', soc[i-1], dn_soc[-1])
+                            popt, pbidt = self.POP(soc[i-1], dn_soc[-1], (dsteps-i) * model.period_dur)
+                            print(popt, pbidt)
+            # for each time step get \mu (PFC operating point, according to freq dev)
+                pop[i] = popt
+                pbid[i] = pbidt
+                power[i] = popt + pbidt * mus[i] 
+                dnch = popt + pbidt*mus_dn[i]
+                upch = popt + pbidt*mus_up[i]
+                if dnch < 0:
+                    k = self.soc_v2geff_per_period
+                else:
+                    k = self.soc_eff_per_period
+                if upch < 0:
+                    j = self.soc_v2geff_per_period
+                else:
+                    j = self.soc_eff_per_period
+                delta_soc = dnch * k * dts_dn[i] + upch * j * dts_up[i]
+                if i == 0:
+                    soc[i] = self.soc_ini[model.day] + delta_soc
+                else:
+                    soc[i] = soc[i-1] + delta_soc
+    
+        # charged_energy
+        self.charged_energy[model.day] = (soc[-1]-soc[0]) * self.batt_size
+        self.soc[idx_tini:idx_tend+1] = soc
+        self.charging[idx_tini:idx_tend+1] = power
+        self.pop[idx_tini:idx_tend+1] = pop
+        self.pbid[idx_tini:idx_tend+1] = pbid
+        
+        
         

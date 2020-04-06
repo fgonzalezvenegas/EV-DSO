@@ -118,13 +118,16 @@ def get_fleet_profs(ch_profs, dn_profs, nevs_fleet, nfleets=1000):
     (n_evs, ndays, nsteps) = dn_profs.shape
     
     # Compute aggregated profiles for EV fleets
-    nint = [np.random.randint(0,n_evs,nevs_fleet) for i in range(nfleets)] # Fleets, based on combinations of EV indexes 
-    
+    nint = np.random.randint(0,n_evs,size=(nfleets, nevs_fleet)) # Fleets, based on combinations of EV indexes
+#    fleet_dn = np.zeros((nfleets, ndays, nsteps))
+#    fleet_ch_profs = np.zeros((nfleets, ndays, nsteps))
+#    for i in range(nfleets):
     # up & dn profiles
-    fleet_dn = np.array([dn_profs[n].sum(axis=0) for n in nint])
+    fleet_dn = np.array([dn_profs[nint[i]].sum(axis=0) for i in range(nfleets)])
     # Charging profiles for fleet
-    fleet_ch_profs = np.array([ch_profs[n].sum(axis=0) for n in nint])
+    fleet_ch_profs = np.array([ch_profs[nint[i]].sum(axis=0) for i in range(nfleets)])
     return fleet_ch_profs, fleet_dn
+
 
 def get_baselines(fleet_ch_profs, bl='UKPN', ndays_bl=10, step=5):
     """ 
@@ -134,7 +137,7 @@ def get_baselines(fleet_ch_profs, bl='UKPN', ndays_bl=10, step=5):
     """
     (nfleets, ndays, nsteps) = fleet_ch_profs.shape
     d = np.random.choice(ndays, ndays_bl, replace=False)
-    if bl in ['UKPN']:
+    if bl in ['UKPN', 'unique']:
         # UKPN baseline: n representative days, plus a uniform BL during the availability window
         UKPN_bl = (fleet_ch_profs[:, d, :]).mean(axis=(1,2))
     
@@ -142,7 +145,7 @@ def get_baselines(fleet_ch_profs, bl='UKPN', ndays_bl=10, step=5):
         ukpn_bls = np.tile(UKPN_bl, (nsteps, ndays, 1)).T
         return ukpn_bls
 
-    elif bl in ['Enedis']:
+    elif bl in ['Enedis', '30min', 'panel', 'Panel']:
 #        Enedis bl: Panel of similar users. 
 #    Lets say we take the half-hourly average for the fleet (as it is supposed to be representative)
         nhh = int(nsteps * step / 30)
@@ -153,11 +156,11 @@ def get_baselines(fleet_ch_profs, bl='UKPN', ndays_bl=10, step=5):
             enedis_bls[:,:,i*nsteps_hh:(i+1)*nsteps_hh] = np.tile(a, (nsteps_hh, ndays, 1)).T
         return enedis_bls
     
-def get_flex_wrt_bl(fleet_dn, baseline, V2G=True):
+def get_flex_wrt_bl(fleet_dn, baseline, baseload=0, V2G=True):
     if V2G:    
-        return baseline - fleet_dn
+        return baseline - baseload - fleet_dn
     else: # V1G flex
-        return baseline - fleet_dn.clip(min=0)
+        return baseline - baseload - fleet_dn.clip(min=0)
 
 def compute_payments(flex, av_payment, ut_payment, 
                      nevents, days_of_service, conf=0.9,
@@ -183,12 +186,8 @@ def compute_payments(flex, av_payment, ut_payment,
     d = np.random.randint(0, ndays, (nscenarios, nevents))
     t = np.random.randint(0, nsteps - nsteps_service, (nscenarios, nevents))
     
-    flex_delivery  = np.zeros((nfleets, nscenarios, nevents))
+    flex_delivery  = flex[:,d,t]
     
-    for s in range(nscenarios):
-        for e in range(nevents):
-            flex_delivery[:,s,e] = flex[:, d[s,e], t[s, e]:t[s,e]+nsteps_service+1].mean(axis=1)
-            
     # Payments:
     # To simplify. Payment on energy + reduction of av payment on delivered energy / contracted energy.
     #  If delivers/contracted < 0.6, no payment 
@@ -198,11 +197,14 @@ def compute_payments(flex, av_payment, ut_payment,
     
     flex_delivery_pu = (flex_delivery_pu).clip(max=1) * (flex_delivery_pu > min_delivery)
     
+    undelivery_ratio = (flex_delivery_pu < min_delivery).mean(axis=(2))
+    
     # expected payment for each firm kW    
     expected_payment = (av_payment * len_av_window * days_of_service) / 1000 + (ut_payment * service_time/60 * nevents) / 1000
     
     flex_payments = np.tile(flex_bid, (nscenarios,1)).T * flex_delivery_pu.mean(axis=2) * expected_payment
-    return flex_bid, flex_payments.flat
+    
+    return flex_bid, flex_payments.flat, undelivery_ratio.flat
 
 def get_av_window_vector(av_window, step, ovn=True):
     if ovn:

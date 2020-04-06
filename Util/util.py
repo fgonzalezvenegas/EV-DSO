@@ -152,9 +152,9 @@ def load_data(data='iris'):
     if data in ['BT', 'bt']:
         return pd.read_csv(r'C:\user\U546416\Documents\PhD\Data\Mobilité\Data_Traitee\Reseau\postes_BT.csv',
                            engine='python', index_col=0)
-    
-    
-
+    if data in ['Nb_BT', 'nb_bt']:
+        return pd.read_csv(r'c:\user\U546416\Documents\PhD\Data\Conso-Reseau\Réseau\nombre_bts_IRIS2017.csv',
+                           engine='python', index_col=0)
 
 
 def list_polygons(polygons, index):
@@ -294,7 +294,7 @@ def evaluate_max_load(base_load, ev_load, max_load, step=30):
              (load > (max_load * 1.0)).sum() * step / 60]
     return peak_load, h_ovl, hist_ovl(load, max_load), load
 
-def interpolate(data, step=15):
+def interpolate(data, step=15, **kwargs):
     """ Returns the data with a greater time resolution, by interpolating it
     """
     if type(data.index[0]) == str:
@@ -303,7 +303,7 @@ def interpolate(data, step=15):
         data.index = data.index.map(lambda x: dt.datetime.strptime(''.join(x.rsplit(':',1)), fmtdt))
     if (data.index[1]-data.index[0])/dt.timedelta(minutes=step) % 1>0:
         raise ValueError('Invalid step, it should be a divisor of data step')
-    return data.asfreq(freq=dt.timedelta(minutes=step)).interpolate()
+    return data.asfreq(freq=dt.timedelta(minutes=step)).interpolate(**kwargs)
     
 def computeDist(latlon1, latlon2):
     """Computes pythagorean distance between 2 points (need to be np.arrays)
@@ -347,5 +347,3 @@ def self_reload(module=None):
     else:
         importlib.reload(module)
     
-def test():
-    print('chao')
