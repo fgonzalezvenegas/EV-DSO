@@ -20,14 +20,16 @@ import pandas as pd
 import datetime as dt
 import util
 import scipy.stats as stats
+import cvxopt
 
+
+cvxopt.solvers.options['show_progress'] = False
 bins_dist = np.linspace(0, 100, num=51)
 dist_function = np.sin(bins_dist[:-1]/ 100 * np.pi * 2) + 1
 dist_function[10:15] = [0, 0, 0 , 0 , 0]
 pdfunc = (dist_function/sum(dist_function)).cumsum()
 
 bins_hours = np.linspace(0,24,num=25)
-
 
 def random_from_cdf(cdf, bins):
     """Returns a random bin value given a cdf.
@@ -171,35 +173,59 @@ class Grid:
         self.buses = []
         
         # Empty arrays for EVs
-        self.types_evs = []
+        self.ev_sets = []
+        self.ev_grid_sets = []
         self.evs = {}
         print('Grid instantiated')
+
+    def add_aggregator(self, nameagg, **agg_data):
+        """ Initiates EVs give by the dict ev_data and other ev global params
+        """
+        if not hasattr(self, 'aggregators'):
+            self.aggregators = []
+            self.ev_agg_sets = []
+        agg = Aggregator(self, nameagg, **agg_data)
+        if self.verbose:
+            print('Creating new aggregator')
+        self.aggregators.append(agg)
+        return agg
         
-        
-    def add_evs(self, nameset, n_evs, ev_type, **ev_params):
+    def add_evs(self, nameset, n_evs, ev_type, aggregator=None, **ev_params):
         """ Initiates EVs give by the dict ev_data and other ev global params
         """
         ev_types = dict(dumb = EV,
                         mod = EV_Modulated,
                         randstart = EV_RandStart,
                         reverse = EV_DumbReverse,
-                        pfc = EV_pfc)
+                        pfc = EV_pfc,
+                        optch = EV_optimcharge)
         
         if not (ev_type in ev_types):
             raise ValueError('Invalid EV type "{}" \
                              Accepted types are: {}'.format(ev_type, [i for i in ev_types.keys()]))
         ev_fx = ev_types[ev_type]
-        
-        if nameset in self.types_evs:
+        # Check that the nameset doesnt exists
+        if nameset in self.ev_sets:
             raise ValueError('EV Nameset "{}" already in the grid. Not created.'.format(nameset))            
         evset = []
         if self.verbose:
             print('Creating EV set {} containing {} {} EVs'.format(
                     nameset, n_evs, ev_type))
+        # Create evs
         for i in range(n_evs):
-            evset.append(ev_fx(self, name=nameset+str(i), **ev_params))
+            evset.append(ev_fx(self, name=nameset+str(i), boss=aggregator, **ev_params))
         
-        self.types_evs.append(nameset)
+        # Save in local variables
+        self.ev_sets.append(nameset)
+        # Check if the evs are assigned to an aggregator
+        if aggregator == None:
+            self.ev_grid_sets.append(nameset)
+        else:
+            if not (aggregator in self.aggregators):
+                raise ValueError('Invalid aggregator')
+            self.ev_agg_sets.append(nameset)
+            aggregator.evs += evset
+            aggregator.nevs += n_evs
         self.evs[nameset] = evset
         self.init_ev_vectors(nameset)
                 
@@ -258,11 +284,11 @@ class Grid:
         # number of frequency measures per simulation period
         nsteps_period = int(self.period_dur * 3600 / step_f) 
         
-        # if i dont have enough freq data, I repeat n_times the data
-        ntimes = len(freq) / nsteps_period
-        if ntimes < 1:
+        # if i dont have enough freq data, I repeat ntimes the data
+        ntimes = (nsteps_period * self.periods) / len(freq)
+        if ntimes > 1:
             print('Insuficient data, replicating it')
-            freq = np.tile(freq, np.ceil(ntimes))
+            freq = np.tile(freq, int(np.ceil(ntimes)))
         
         mu = np.zeros(self.periods)
         mu_up = np.zeros(self.periods)
@@ -284,18 +310,39 @@ class Grid:
         self.dt_up = dt_up
         self.dt_dn = dt_dn
         
+    def add_prices(self, prices, step_p=1):
+        """ Adds price vector.
+        Input: Price vector (can be one day, week or the whole duration of the sim)
+        step_p: Length of each price vector step, in hours
+        Converts input price vector in step_p hours to 
+        output price vector in grid step
+        Prices in c€/kWh
+        """
+        # number of simulation steps per input price step
+        nps = int(step_p/self.period_dur)        
+        
+        # if i dont have enough price data, I repeat n_times the data
+        ntimes = (self.periods) / (len(prices) * nps)
+        if ntimes > 1:
+            print('Insuficient data, replicating it')
+            prices = np.tile(prices, int(np.ceil(ntimes)))
+        self.prices = np.repeat(prices, nps)[:self.periods]
+        
     def new_day(self):
         """ Iterates over evs to compute new day 
         """
-        for types in self.evs:
+        for types in self.ev_grid_sets:
             for ev in self.evs[types]:
                 ev.new_day(self)
+        if hasattr(self, 'aggregators'):
+            for agg in self.aggregators:
+                agg.new_day()
     
     def compute_per_bus_data(self):
         """ Computes aggregated ev load per bus and ev type
         """
         load_ev = {}
-        for types in self.evs:
+        for types in self.ev_sets:
             for ev in self.evs[types]:
                 if (types, ev.bus) in load_ev:
                     load_ev[types, ev.bus] += ev.charging * 1
@@ -309,7 +356,7 @@ class Grid:
         total = 'Total'
         if self.verbose:
             print('Grid {}: Computing aggregated data'.format(self.name))
-        for types in self.evs:
+        for types in self.ev_sets:
             for ev in self.evs[types]:
                 self.ev_potential[types] += ev.potential / util.k
                 self.ev_load[types] += ev.charging / util.k
@@ -368,7 +415,7 @@ class Grid:
     def plot_ev_load(self, day_ini=0, days=-1, opp=False, **plot_params):
         """ Stacked plot of EV charging load
         """
-        load = np.array([self.ev_load[types] for types in self.types_evs])
+        load = np.array([self.ev_load[types] for types in self.ev_sets])
         tot = 'Total'
         x = [t[0] * 24 + t[1] for t in self.times]
         if not 'ax' in plot_params:
@@ -376,7 +423,7 @@ class Grid:
         else:
             ax = plot_params['ax']
             del plot_params['ax']
-        ax.stackplot(x, load, labels=self.types_evs)
+        ax.stackplot(x, load, labels=self.ev_sets)
         if opp:
             ax.plot(x, self.ev_potential[tot], label='EV potential')
             if not (self.ev_potential[tot] == self.ev_off_peak_potential[tot]).all():
@@ -620,7 +667,9 @@ class EV:
                  target_soc=1,
                  ovn=True,
                  up_dn_flex=False,
-                 flex_time=30):
+                 flex_time=30,
+                 VCC=False,
+                 boss=None):
         """Instantiates EV object:
            name id
            sets home-work distance [km]
@@ -660,10 +709,10 @@ class EV:
         self.target_soc = target_soc                    # Target SOC for charging process
         self.n_trips = 2                                # Number of trips per day (Go and come back)
         self.extra_trip_proba = extra_trip_proba        # probability of extra trip
-        if not charging_type in ['if_needed', 'if_needed_sunday', 'all_days', 'if_needed_prob', 'weekdays']:
+        if not charging_type in ['if_needed', 'if_needed_sunday', 'all_days', 'if_needed_weekend', 'weekdays']:
             ValueError('Invalid charging type %s' %charging_type) 
         self.charging_type = charging_type              # Charging behavior (every day or not)
-        if charging_type in ['if_needed_weekend', 'if_needed_prob']: # Forced charging on Friday, Saturday or Sunday
+        if charging_type in ['if_needed_weekend']: # Forced charging on Friday, Saturday or Sunday
             self.forced_day = np.random.randint(low=0,high=3,size=1)+4
         elif charging_type == 'if_needed_sunday':
             self.forced_day = 6
@@ -699,6 +748,8 @@ class EV:
         # Grid Params
         self.bus = ''
         
+        # Aggregator params
+        self.boss = boss
         
         # RESULTS/VARIABLES
         self.soc_ini = np.zeros(model.ndays)        #list of SOC ini at each day (of charging session)
@@ -896,6 +947,10 @@ class EV:
             if not model.days[model.day] in model.weekends:
                 return True
             return False
+        if self.charging_type == 'weekdays+1':
+            if not model.days[model.day] in model.weekends:
+                return True
+            return np.random.rand() > 0.5
 #        if self.charging_type == 'weekends':
 #            # TODO: Complete if charging is needed
 #            if model.days[model.day] in model.weekends:
@@ -938,16 +993,20 @@ class EV:
         if idx_tini >= idx_tend:
             self.do_zero_charge(model, idx_tini, idx_tend)
             self.compute_soc_end(model, idx_tend)
-            return
+            return idx_tini, idx_tend
         # Potential charging vector
         potential = np.ones(idx_tend+1-idx_tini) * self.charging_power
         # Correct for arrival period 
         potential[0] = ((model.period_dur - self.arrival % model.period_dur ) / 
                  model.period_dur * self.charging_power)
         # And correct for departure period
-        
         potential[-1] = (self.departure % model.period_dur / 
                  model.period_dur * self.charging_power)
+        
+        # Check for aggregators limit
+        if self.boss != None:
+            if self.boss.param_update in ['capacity', 'all']:
+                potential = np.min([potential, self.boss.available_capacity[idx_tini:idx_tend+1]], axis=0)
         
         # Save in potential and off peak vectors
         self.potential[idx_tini:idx_tend+1] = potential
@@ -960,6 +1019,7 @@ class EV:
         self.compute_soc_end(model, idx_tend)
         if self.up_dn_flex:
             self.compute_up_dn_flex_kw(model, idx_tini, idx_tend)
+        return idx_tini, idx_tend
     
     def do_zero_charge(self, model, idx_tini, idx_tend):
         """ Does a default 0 charge. Used in case SOC_ini > target_soc
@@ -984,7 +1044,7 @@ class EV:
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
         
         # charged_energy
-        self.charged_energy[model.day] = (soc[-1]-soc[0]) * self.batt_size
+        self.charged_energy[model.day] = (soc[-1]-self.soc_ini[model.day]) * self.batt_size
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
     
@@ -1037,15 +1097,6 @@ class EV:
         
         # SOC baselines:
         soc_b = self.soc[idx_tini:idx_tend+1] * self.batt_size
-#        minmax_soc_batt = max(self.soc_ini[model.day], self.target_soc) * self.batt_size
-#        
-#        len_steps = idx_tend - idx_tini + 1
-#        mean_traj = np.concatenate(([soc_ini],self.mean_flex_traj[idx_tini:idx_tend]))
-#        immediate = np.min([np.concatenate(([soc_ini], self.up_flex[idx_tini:idx_tend])), 
-#                            np.ones(len_steps) * minmax_soc_batt], axis=0)
-#        delayed = np.max([np.concatenate(([soc_ini], self.dn_flex[idx_tini:idx_tend])), 
-#                          np.ones(len_steps) * self.soc_ini[model.day] * self.batt_size], axis=0)
-#            
             
         # Up and down kWs based on given battery trajectories:
         kwh_to_kw_up = 1/((self.flex_time / 60) * self.charging_eff)
@@ -1053,33 +1104,7 @@ class EV:
         
         self.up_flex_kw[idx_tini:idx_tend+1]  = ((high_bound-soc_b) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
         self.dn_flex_kw[idx_tini:idx_tend+1]  = ((low_bound-soc_b) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
-        
-#        self.up_flex_kw_meantraj[idx_tini:idx_tend+1]  = ((high_bound-mean_traj) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
-#        self.up_flex_kw_immediate[idx_tini:idx_tend+1] = ((high_bound-immediate) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
-#        self.up_flex_kw_delayed[idx_tini:idx_tend+1]   = ((high_bound-delayed) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
-#        self.dn_flex_kw_meantraj[idx_tini:idx_tend+1]  = ((low_bound-mean_traj) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
-#        self.dn_flex_kw_immediate[idx_tini:idx_tend+1] = ((low_bound-immediate) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
-#        self.dn_flex_kw_delayed[idx_tini:idx_tend+1]   = ((low_bound-delayed) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
-#        except:
-#            print('IDXs:' + str(idx_tini) + ' ' + str(idx_tend))
-#            print('Bounds, high : {}'.format(high_bound))
-#            print('Bounds, low : {}'.format(low_bound))
-#            print('trajs - mean: {}'.format(mean_traj))
-#            print('trajs - immediate: {}'.format(immediate))
-#            print('trajs - delayed: {}'.format(delayed))
-#        # 
-#        
-        plt.subplots()
-        plt.plot(low_bound, label='low_bound')
-        plt.plot(high_bound, label='high')
-        plt.plot(soc_b, label='realisation')
-#        plt.plot(mean_traj, label='mean')
-#        plt.plot(immediate, label='immediate')
-#        plt.plot(delayed, label='delayed')
-        plt.legend()
-
-        
-            
+     
     def compute_soc_end(self, model, idx_tend=False):
         """ Calculates SOC at the end of the charging session
         """
@@ -1088,22 +1113,25 @@ class EV:
         else:
             self.soc_end[model.day] = self.soc_ini[model.day]
             
-    def new_day(self, model):
+    def new_day(self, model, get_idxs=False):
         # Update for a new day:
         # Compute arrivals and departures
         if model.days[model.day] in model.weekends:
                 self.set_arrival_departure(**self.arrival_departure_data_we)                    
         else:
             self.set_arrival_departure(**self.arrival_departure_data_wd)
-        # Computes initial soc based on past trips
+        # Computes initial soc based on effected trips
         self.compute_energy_trip(model)
         self.compute_soc_ini(model)
         # Defines if charging is needed
         self.ch_status[model.day] = self.define_charging_status(model)
         if self.ch_status[model.day]:
-            self.do_charging(model)
+            idxs = self.do_charging(model)
         else:
             self.compute_soc_end(model)
+            idxs =  0, 0
+        if get_idxs:
+            return idxs
     
     def reset(self, model):
         self.soc_ini = self.soc_ini * 0                 #list of SOC ini at each day (of charging session)
@@ -1146,7 +1174,7 @@ class EV_Modulated(EV):
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
         
         # charged_energy
-        self.charged_energy[model.day] = (soc[-1]-soc[0]) * self.batt_size
+        self.charged_energy[model.day] = (soc[-1]-self.soc_ini[model.day]) * self.batt_size
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
         
@@ -1187,7 +1215,7 @@ class EV_RandStart(EV):
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
         
         # chssarged_energy
-        self.charged_energy[model.day] = (soc[-1]-soc[0]) * self.batt_size
+        self.charged_energy[model.day] = (soc[-1]-self.soc_ini[model.day]) * self.batt_size
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
         
@@ -1222,7 +1250,7 @@ class EV_DumbReverse(EV):
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
         
         # charged_energy
-        self.charged_energy[model.day] = (soc[-1]-soc[0]) * self.batt_size
+        self.charged_energy[model.day] = (soc[-1]-self.soc_ini[model.day]) * self.batt_size
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
         
@@ -1261,7 +1289,12 @@ class EV_pfc(EV):
         opp = self.off_peak_potential[idx_tini:idx_tend+1]
         if max_soc_d <= self.target_soc:
             soc = (opp.cumsum() * self.soc_eff_per_period + self.soc_ini[model.day])
-            power = opp / self.soc_eff_per_period
+            power = opp
+            pop = power
+            pbid = np.zeros(dsteps)
+        elif self.steps_pop >= dsteps:
+            self.do_zero_charge(model, idx_tini, idx_tend)
+            return
         else:
             # define bounds for SOC
             dn_soc = (self.target_soc - np.concatenate((opp[::-1].cumsum()[:0:-1] * self.soc_eff_per_period, [0]))).clip(min=self.low_bound)
@@ -1289,10 +1322,7 @@ class EV_pfc(EV):
                         if k < dsteps:
                             popt, pbidt = self.POP(soc[i-1], dn_soc[k], self.pop_dur)
                         else:
-                            print('dt', (dsteps-i) * model.period_dur)
-                            print('soc', soc[i-1], dn_soc[-1])
                             popt, pbidt = self.POP(soc[i-1], dn_soc[-1], (dsteps-i) * model.period_dur)
-                            print(popt, pbidt)
             # for each time step get \mu (PFC operating point, according to freq dev)
                 pop[i] = popt
                 pbid[i] = pbidt
@@ -1321,4 +1351,115 @@ class EV_pfc(EV):
         self.pbid[idx_tini:idx_tend+1] = pbid
         
         
+class EV_optimcharge(EV):
+    """ EV optimizes charging costs given a a variable (hourly, for ex) price of electricity
+    """
+    def __init__(self, model, name, **params):
+        super().__init__(model, name, **params)
+        self.cost = np.zeros(model.ndays)
+    
+    def compute_charge(self, model, idx_tini, idx_tend):
+        """ Compute charge given system frequency
+        """
+        if self.soc_ini[model.day] >= self.target_soc:
+            self.do_zero_charge(model, idx_tini, idx_tend)
+            return
+        if self.boss == None:
+            prices = model.prices[idx_tini:idx_tend+1]
+        else:
+            prices = self.boss.prices[idx_tini:idx_tend+1]
+        min_ch = (self.target_soc - self.soc_ini[model.day]) * self.batt_size # Minimum charge needed in kWh
+        opp = self.off_peak_potential[idx_tini:idx_tend+1]
+        max_ch = opp.sum() * self.eff_per_period  # Maximum charge in the session (considering capacity limits) in  kWh
+        n = len(prices)
+        if max_ch <= min_ch:
+            soc = (opp.cumsum() * self.soc_eff_per_period + self.soc_ini[model.day])
+            power = opp
+        else:
+            # Optimize V1G charge (x) using CVXOPT
+            # min prices * x
+            # st:   Gx <= h
+            # -sum(x) <= min_charge/eff*dt
+            # 0 <= x <= opp[t]
+            G = np.vstack([-np.ones(n), np.eye(n), -np.eye(n)])
+            h = np.hstack([-min_ch/self.eff_per_period, opp, np.zeros(n)])
+            r = cvxopt.solvers.lp(cvxopt.matrix(prices), cvxopt.matrix(G), cvxopt.matrix(h), verbose=True)
+            
+            power = np.squeeze(r['x'])
+            soc = self.soc_ini[model.day] + power.cumsum() * self.soc_eff_per_period
         
+        # charged_energy
+        self.charged_energy[model.day] = (soc[-1]-self.soc_ini[model.day]) * self.batt_size
+        self.cost[model.day] = (power * prices).sum()
+        self.soc[idx_tini:idx_tend+1] = soc
+        self.charging[idx_tini:idx_tend+1] = power
+        
+                
+class Aggregator():
+    """ Aggregator can interact with grid and EVs
+    Updates EV signals (prices or limits)
+    """
+    def __init__(self, model, name, param_update='prices', 
+                 price_elasticity=0.02, capacity=100):
+        """  model= Grid
+        name = Aggregator ID
+        param_update = For each EV iteration, Aggregator updates Dynamic prices or available capacity
+            options = 'e_prices', 'capacity', 'all'
+        price_elasticity = To update dynamic price in c€/kW, for each extra kW of EV charge, prices change in c€
+            It is based on Van Amstel thesis (2018), 
+            Approx slope of NL market, 4 [€/MWh]/GW, Average size of neighborhood = 165 EVs out of 8M in country
+            => Equivalent price elasticity of neighborhood => 4 [€/MWh] / GW * 8M/165 [National/local load]
+            => 19.4 c€/MWh => 0.019 c€/kWh
+            This value should be updated for considered Fleet sizes, EV penetrations, price slopes, etc
+        capacity = Available capacity for the fleet [kW]. It can be also a numpy array of len(model.periods)
+            
+        """
+        self.name = name
+        self.model = model
+        self.param_update = param_update
+        valid_params = ['prices', 'capacity', 'all']
+        if param_update in ['prices', 'capacity', 'all']:
+            raise ValueError('Invalid parameter to update, valid are {}'.format(valid_params))
+        if param_update in ['prices', 'all']:
+            if hasattr(model, 'prices'):
+                self.prices = model.prices
+            else:
+                raise ValueError('No prices defined for aggregator wanting to update prices')
+                
+        if param_update in ['capacity', 'all']:
+            self.capacity = np.ones(model.periods) * capacity
+            self.available_capacity = np.ones(model.periods) * capacity
+        
+        self.price_elasticity = price_elasticity
+        self.nevs = 0
+        self.evs = []    
+        self.ev_charge = np.zeros(model.periods)
+
+    def get_evs_randord(self):
+        """ Return a list of EVs in a random order
+        """
+        np.random.shuffle(self.evs)
+        return self.evs
+    
+    def update_prices(self, ev, idx_tini, idx_tend):
+        """ Update internal prices to be sent to next evs
+        """
+        self.prices[idx_tini:idx_tend+1] += ev.charging[idx_tini:idx_tend+1] * self.price_elasticity
+       
+    def update_available_capacity(self, ev, idx_tini, idx_tend):
+        """ Update 
+        """
+        self.available_capacity[idx_tini:idx_tend+1] -= ev.charging[idx_tini:idx_tend+1]
+    
+    def new_day(self):
+        """ Computes new day
+        Loop
+            Calls an EV, sends updated info, EV computes day, sends back charging profile
+            Updates prices/capacity
+        """
+        for ev in self.get_evs_randord():
+            idx_tini, idx_tend = ev.new_day(self.model, get_idxs=True)
+            if self.param_update in ['prices', 'all']:
+                self.update_prices(ev, idx_tini, idx_tend)
+            if self.param_update in ['capacity', 'all']:
+                self.update_available_capacity(ev, idx_tini, idx_tend)
