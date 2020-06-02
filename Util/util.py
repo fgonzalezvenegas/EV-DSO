@@ -98,7 +98,18 @@ def plot_segments(segments, ax='', loop=True, ends=False, **kwargs):
         if ends:
             ax.plot([x[0],x[-1]], [y[0],y[-1]], 'r*')
     return ax
-    
+
+def length_segment_WGS84(segment, unit='m'):
+    """ Returns the length in meters of a segment
+    of points in GPS coordinates [(lon, lat)_i, ....] """
+    k = dict(km=1,
+             m=1000)[unit]
+    l = 0
+    p0 = segment[0]
+    for p in segment[1:]:
+        l += computeDist(p0, p)
+        p0 = p
+    return l * k
     
 def fix_wrong_encoding_str(pdSeries):
     """
