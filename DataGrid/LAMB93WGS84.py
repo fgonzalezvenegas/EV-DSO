@@ -14,55 +14,56 @@ from matplotlib.collections import LineCollection, PatchCollection
 import matplotlib.patches as ptc
 import time
 import util
+import coord_transform as ct
 
-def lat_iso_lat(lat_iso, e):
-    tol = 1e-11
-    lats = []
-    lat0 = 2 * np.arctan(np.exp(lat_iso)) - np.pi/2
-    lats.append(lat0)
-    tol_nok = True
-    i=0
-    while tol_nok:
-        i=i+1
-        lat_i = 2 * np.arctan(
-                (((1 + e * np.sin(lats[-1]))/(1 - e * np.sin(lats[-1]))) ** (e/2)) *
-                np.exp(lat_iso)) - np.pi/2
-        lats.append(lat_i)
-        if abs(lats[-1]-lats[-2]) < tol:
-            tol_nok = False
-    #print(lats)
-    return lats[-1]
+# def lat_iso_lat(lat_iso, e):
+#     tol = 1e-11
+#     lats = []
+#     lat0 = 2 * np.arctan(np.exp(lat_iso)) - np.pi/2
+#     lats.append(lat0)
+#     tol_nok = True
+#     i=0
+#     while tol_nok:
+#         i=i+1
+#         lat_i = 2 * np.arctan(
+#                 (((1 + e * np.sin(lats[-1]))/(1 - e * np.sin(lats[-1]))) ** (e/2)) *
+#                 np.exp(lat_iso)) - np.pi/2
+#         lats.append(lat_i)
+#         if abs(lats[-1]-lats[-2]) < tol:
+#             tol_nok = False
+#     #print(lats)
+#     return lats[-1]
 
-def point_LAMB938_WGS84(xy):
-    """ Returns geo coordinates from LAMBERT 93 french projection system
-    """
-    n = 0.7256077650
-    C = 11754255.426
-    xs = 700000.00
-    ys = 12655612.050
-    e = 0.08181919112
-    #e = 0.08248325676
-    lon0 = 3*np.pi/180  # IERS Meridian #(2 + 20/60 + 14.025/3600) * np.pi / 180 # degrees
+# def point_LAMB938_WGS84(xy):
+#     """ Returns geo coordinates from LAMBERT 93 french projection system
+#     """
+#     n = 0.7256077650
+#     C = 11754255.426
+#     xs = 700000.00
+#     ys = 12655612.050
+#     e = 0.08181919112
+#     #e = 0.08248325676
+#     lon0 = 3*np.pi/180  # IERS Meridian #(2 + 20/60 + 14.025/3600) * np.pi / 180 # degrees
     
-    R = np.sqrt((xy[0]-xs)**2+(xy[1]-ys)**2)
-    y = np.arctan((xy[0] - xs)/(ys - xy[1]))
+#     R = np.sqrt((xy[0]-xs)**2+(xy[1]-ys)**2)
+#     y = np.arctan((xy[0] - xs)/(ys - xy[1]))
     
-    lat_iso = -1/n * np.log(abs(R/C))
+#     lat_iso = -1/n * np.log(abs(R/C))
     
-    lon = lon0 + y/n 
-    lat = lat_iso_lat(lat_iso, e)
+#     lon = lon0 + y/n 
+#     lat = lat_iso_lat(lat_iso, e)
     
-    return lon*180/np.pi, lat*180/np.pi
+#     return lon*180/np.pi, lat*180/np.pi
 
-def polygon_LAMB93_WGS84(points):
-    """ Returns geo coordinates from LAMBERT 93 french projection system
-    """
-    return [point_LAMB938_WGS84(xy) for xy in points]
+# def polygon_LAMB93_WGS84(points):
+#     """ Returns geo coordinates from LAMBERT 93 french projection system
+#     """
+#     return [point_LAMB938_WGS84(xy) for xy in points]
 
-def coords(polygon):
-    """ Returns a representative point for the polygon
-    """
-    return np.mean(np.array(polygon), axis=0)
+# def coords(polygon):
+#     """ Returns a representative point for the polygon
+#     """
+#     return np.mean(np.array(polygon), axis=0)
     #%% Read shapefile and transform iris contours from LAMBERT 93 to WGS84
 
 # c:\user\U546416\Documents\PhD\Data\DataGeo\CONTOURS-IRIS_2-1_SHP_LAMB93_FE-2016
@@ -93,11 +94,11 @@ while i<len(shape):
     if len(s.shape.parts)==1:
         #Normal Polygon
         iris[code].append('Polygon')
-        iris_poly[code] = [polygon_LAMB93_WGS84(s.shape.points)]
+        iris_poly[code] = [ct.polygon_LAMB93_WGS84(s.shape.points)]
     else:
         iris[code].append('MultiPolygon')
         parts = list(s.shape.parts) + [len(s.shape.points)]
-        poly = polygon_LAMB93_WGS84(s.shape.points)
+        poly = ct.polygon_LAMB93_WGS84(s.shape.points)
         iris_poly[code] = [poly[parts[i]:parts[i+1]] for i in range(len(parts)-1)]
         mp +=1
     i+=1
