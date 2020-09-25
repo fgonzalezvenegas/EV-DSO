@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+20# -*- coding: utf-8 -*-
 """
 Created on Wed Mar  6 13:07:14 2019
 
@@ -48,7 +48,44 @@ def random_from_2d_pdf(pdf, bins):
     val1 = random_from_cdf(pdf.sum(axis=1).cumsum(), bins)
     x = np.digitize(val1, bins)
     val2 = random_from_cdf(pdf[x-1].cumsum() / pdf[x-1].sum(), bins)
-    return val1, val2    
+    return val1, val2
+
+def discrete_random_data(self, data_values, values_prob):
+    """ Returns a random value from a set data_values, according to the probability vector values_prob
+    """
+    return np.random.choice(data_values, p=values_prob)
+
+def set_dist(data_dist):
+        """Returns one-way distance given by a cumulative distribution function
+        The distance is limited to 120km
+        """
+        # Default values for 
+        # Based on O.Borne thesis (ch.3), avg trip +-19km
+        s=0.736
+        scale=np.exp(2.75)
+        loc=0
+        if type(data_dist) in [int, float]:
+            return data_dist
+        if type(data_dist) == dict:
+            if 's' in data_dist:
+                # Data as scipy.stats.lognorm params
+                s = data_dist['s']
+                loc = data_dist['loc']
+                scale = data_dist['scale']
+            if 'cdf' in data_dist:
+                # data as a cdf, containts cdf and bins values
+                cdf = data_dist['cdf']
+                if 'bins' in data_dist:
+                    bins_dist = data_dist['bins']
+                else:
+                    bins_dist = np.linspace(0, 100, num=51)
+                return random_from_cdf(cdf, bins_dist)
+            
+        d = stats.lognorm.rvs(s, loc, scale, 1)
+        #check that distance is under dmax = 120km, so it can be done with one charge
+        while d > 120:
+            d = stats.lognorm.rvs(s, loc, scale, 1)
+        return d        
 
 #def load_conso_ss_data(folder = 'c:/user/U546416/Documents/PhD/Data/Mobilité/',
 #                       folder_load = 'Data_Traitee/Conso/',
@@ -74,18 +111,18 @@ def random_from_2d_pdf(pdf, bins):
 #    return load_by_comm, load_profiles, SS
 
 
-def load_hist_data(folder=r'c:/user/U546416/Documents/PhD/Data/Mobilité/', 
-                   folder_hist='',
-                   file_hist_home='HistHome.csv',
-                   file_hist_work='HistWork.csv'):
-    """ load histogram data for conso and substations
-    """
-    
-    hist_home = pd.read_csv(folder + folder_hist+ file_hist_home, 
-                               engine='python', delimiter=',', index_col=0)
-    hist_work = pd.read_csv(folder + folder_hist+ file_hist_work, 
-                               engine='python', delimiter=',', index_col=0)
-    return hist_home, hist_work
+#def load_hist_data(folder=r'c:/user/U546416/Documents/PhD/Data/Mobilité/', 
+#                   folder_hist='',
+#                   file_hist_home='HistHome.csv',
+#                   file_hist_work='HistWork.csv'):
+#    """ load histogram data for conso and substations
+#    """
+#    
+#    hist_home = pd.read_csv(folder + folder_hist+ file_hist_home, 
+#                               engine='python', delimiter=',', index_col=0)
+#    hist_work = pd.read_csv(folder + folder_hist+ file_hist_work, 
+#                               engine='python', delimiter=',', index_col=0)
+#    return hist_home, hist_work
 
 
 #def extract_hist(hist, comms):
@@ -111,18 +148,19 @@ def load_hist_data(folder=r'c:/user/U546416/Documents/PhD/Data/Mobilité/',
 #    return load_profiles * factors
 
 
-def get_max_load_week(load, step=30, buffer_before=0, buffer_after=0):
-    """ Returns the week of max load. It adds Xi buffer days before and after
-    """
-    if type(load.index[0]) == str:
-        fmtdt = '%Y-%m-%d %H:%M:%S%z'
-        #parse!
-        load.index = load.index.map(lambda x: dt.datetime.strptime(''.join(x.rsplit(':',1)), fmtdt))
-    idmax = load.idxmax()
-    dwmax = idmax.weekday()
-    dini = idmax - dt.timedelta(days=dwmax+buffer_before, hours=idmax.hour, minutes=idmax.minute)
-    dend = dini + dt.timedelta(days=7+buffer_after+buffer_before) #- dt.timedelta(minutes=30)
-    return load.loc[dini:dend]
+#def get_max_load_week(load, step=30, buffer_before=0, buffer_after=0):
+#    """ Returns the week of max load. It adds Xi buffer days before and after
+#    """
+#    if type(load.index[0]) == str:
+#        fmtdt = '%Y-%m-%d %H:%M:%S%z'
+#        #parse!
+#        load.index = load.index.map(lambda x: dt.datetime.strptime(''.join(x.rsplit(':',1)), fmtdt))
+#    idmax = load.idxmax()
+#    dwmax = idmax.weekday()
+#    dini = idmax - dt.timedelta(days=dwmax+buffer_before, hours=idmax.hour, minutes=idmax.minute)
+#    dend = dini + dt.timedelta(days=7+buffer_after+buffer_before) #- dt.timedelta(minutes=30)
+#    return load.loc[dini:dend]
+
 
     
 class Grid:
@@ -190,7 +228,7 @@ class Grid:
         self.aggregators.append(agg)
         return agg
         
-    def add_evs(self, nameset, n_evs, ev_type, aggregator=None, **ev_params):
+    def add_evs(self, nameset, n_evs, ev_type, aggregator=None, charge_schedule=None, **ev_params):
         """ Initiates EVs give by the dict ev_data and other ev global params
         """
         ev_types = dict(dumb = EV,
@@ -208,13 +246,30 @@ class Grid:
         if nameset in self.ev_sets:
             raise ValueError('EV Nameset "{}" already in the grid. Not created.'.format(nameset))            
         evset = []
-        if self.verbose:
-            print('Creating EV set {} containing {} {} EVs'.format(
-                    nameset, n_evs, ev_type))
+
         # Create evs
-        for i in range(n_evs):
-            evset.append(ev_fx(self, name=nameset+str(i), boss=aggregator, **ev_params))
-        
+        # TODO: improve this
+        # Check if schedule is given:
+        if not (charge_schedule is None):
+            # If schedule has EV column, create each EV with its own schedule
+            if 'EV' in charge_schedule:
+                users = charge_schedule.EV.unique()
+                n_evs = len(users)
+                for i in users:
+                    evset.append(ev_fx(self, name=nameset+str(i), boss=aggregator, 
+                                       charge_schedule=charge_schedule[charge_schedule.EV==i].reset_index(drop=True),
+                                       **ev_params))
+            # else, all EVs with same schedule
+            else:
+                for i in range(n_evs): 
+                    evset.append(ev_fx(self, name=nameset+str(i), boss=aggregator, 
+                                       charge_schedule=charge_schedule, **ev_params))
+        else:   
+            for i in range(n_evs):
+                evset.append(ev_fx(self, name=nameset+str(i), boss=aggregator, **ev_params))
+        if self.verbose:
+            print('Created EV set {} containing {} {} EVs'.format(
+                    nameset, n_evs, ev_type))
         # Save in local variables
         self.ev_sets.append(nameset)
         # Check if the evs are assigned to an aggregator
@@ -228,6 +283,7 @@ class Grid:
             aggregator.nevs += n_evs
         self.evs[nameset] = evset
         self.init_ev_vectors(nameset)
+        return self.evs[nameset]
                 
     def init_load_vector(self, load):
         """ Creates empty array for global variables"""
@@ -405,8 +461,8 @@ class Grid:
         if 'ylim' in plot_params:
             ax.set_ylim(top=plot_params['ylim'])
         ax.set_ylim(bottom=0)
-        ax.set_xticks(np.arange(self.ndays) * 24)
-        ax.set_xticklabels(daylbl)
+        ax.set_xticks(np.arange(self.ndays+1) * 24)
+        ax.set_xticklabels(np.tile(daylbl, int(np.ceil((self.ndays+1)/7))))
         ax.grid(axis='x')
         ax.set_xlim(x[t0], x[tf-1])
         
@@ -569,9 +625,11 @@ class Grid:
         """
         return np.random.choice(self.evs[np.random.choice([key for key in self.evs])])
     
-    def get_evs(self):
+    def get_evs(self, key=None):
         """ Returns list of evs
         """
+        if key in self.evs:
+            return self.evs[key]
         return [ev for key in self.evs for ev in self.evs[key]]
     
     def export_ev_data(self, atts=''):
@@ -579,7 +637,7 @@ class Grid:
         atts : attributes to export
         """
         if atts == '':
-            atts = ['name', 'bus', 'dist_wd', 'dist_we']
+            atts = ['name', 'batt_size', 'charging_power', 'bus', 'dist_wd', 'dist_we']
         ev_data = {}
         for types in self.evs:
             ev_data[types] = []
@@ -642,8 +700,8 @@ class EV:
     """
     bins_dist = np.linspace(0, 100, num=51)
     def __init__(self, model, name, 
-                 dist_wd=0,
-                 dist_we=0,
+                 dist_wd=None,
+                 dist_we=None,
                  var_dist_wd=0,
                  var_dist_we=0,
                  charging_power=3.6, 
@@ -658,18 +716,19 @@ class EV:
                  driving_eff=0.2, 
                  batt_size=40,
                  range_anx_factor=1.5,
+                 n_if_needed=0,
                  extra_trip_proba=0,
                  arrival_departure_data_wd = dict(),
                  arrival_departure_data_we = dict(mu_arr=16, mu_dep=8,
                                                   std_arr=2, std_dep=2),
+                 charge_schedule = None,
                  bus='',
-                 n_if_needed=0,
                  target_soc=1,
                  ovn=True,
-                 up_dn_flex=False,
-                 flex_time=30,
+                 flex_time=0,
                  VCC=False,
-                 boss=None):
+                 boss=None,
+                 **kwargs):
         """Instantiates EV object:
            name id
            sets home-work distance [km]
@@ -684,23 +743,23 @@ class EV:
         # PARAMS
         # Sets distance for weekday and weekend one-way trips
         # dist_wx can be a {} with either 's', 'm', 'loc' for lognorm params or with 'cdf', 'bins'
-        self.dist_wd = self.set_dist(dist_wd)
-        self.dist_we = self.set_dist(dist_we) 
+        self.dist_wd = set_dist(dist_wd)
+        self.dist_we = set_dist(dist_we) 
         self.var_dist_wd = var_dist_wd
         self.var_dist_we = var_dist_we
         # Discrete random distribution (non correlated) for battery & charging power
         if type(charging_power) is int or type(charging_power) is float:
             self.charging_power = charging_power
         elif len(charging_power) == 2:
-            self.charging_power = self.set_discrete_random_data(charging_power[0], charging_power[1])
+            self.charging_power = discrete_random_data(charging_power[0], charging_power[1])
         else:
             ValueError('Invalid charging_power value')     
         if type(batt_size) is int or type(batt_size) is float:
             self.batt_size = batt_size
         elif len(batt_size) == 2:
-            self.batt_size = self.set_discrete_random_data(batt_size[0], batt_size[1])
+            self.batt_size = discrete_random_data(batt_size[0], batt_size[1])
         else:
-            ValueError('Invalid charging_eff value')               
+            ValueError('Invalid batt_size value')               
         self.charging_eff = charging_eff                # Charging efficiency, in pu
         self.discharging_eff = discharging_eff          # Discharging efficiency, in pu
         self.driving_eff = driving_eff                  # Driving efficiency kWh / km
@@ -709,7 +768,7 @@ class EV:
         self.target_soc = target_soc                    # Target SOC for charging process
         self.n_trips = 2                                # Number of trips per day (Go and come back)
         self.extra_trip_proba = extra_trip_proba        # probability of extra trip
-        if not charging_type in ['if_needed', 'if_needed_sunday', 'all_days', 'if_needed_weekend', 'weekdays']:
+        if not charging_type in ['if_needed', 'if_needed_sunday', 'all_days', 'if_needed_weekend', 'weekdays', 'weekdays+1']:
             ValueError('Invalid charging type %s' %charging_type) 
         self.charging_type = charging_type              # Charging behavior (every day or not)
         if charging_type in ['if_needed_weekend']: # Forced charging on Friday, Saturday or Sunday
@@ -726,16 +785,28 @@ class EV:
         if tou_we:
             self.tou_ini_we = tou_ini_we
             self.tou_end_we = tou_end_we
-        self.arrival_departure_data_wd = arrival_departure_data_wd
-        self.arrival_departure_data_we = arrival_departure_data_we
-        self.ovn = ovn                                  # Overnight charging Bool
-        self.up_dn_flex = up_dn_flex                    # Bool to compute 'physical realisations' of flexibility 
-                                                        # according to baselines: mean traj, immediate, end charging
-        if up_dn_flex:
-            if flex_time % model.step > 0:
-                raise ValueError('Flexibility time [{} minutes] should be a ' +
-                                 'multiple of model.step [{} minutes]'.format(flex_time, model.step))
-            self.flex_time = flex_time                  # Time (minutes) for which the flex needs to be available
+        if charge_schedule is None:    
+            self.arrival_departure_data_wd = arrival_departure_data_wd
+            self.arrival_departure_data_we = arrival_departure_data_we
+            self.ovn = ovn                                  # Overnight charging Bool
+            self.charge_schedule = None
+        else:
+            cols = ['ArrTime', 'ArrDay', 'DepTime', 'DepDay', 'TripDist']
+            for c in cols:
+                if not (c in charge_schedule):
+                    raise ValueError('Charge schedule should have the following columns: {}'.format(cols))
+            self.charge_schedule = charge_schedule
+            
+        # Parameter to compute 'physical realisations' of flexibility 
+        # Flex service corresponds to a sustained injection during flex_time minutes
+        if flex_time:
+            if type(flex_time) == int:
+                flex_time = [flex_time]
+            for f in flex_time:
+                if f % model.step > 0:
+                    raise ValueError('Flexibility time [{} minutes] should be a ' +
+                                     'multiple of model.step [{} minutes]'.format(flex_time, model.step))
+        self.flex_time = flex_time                  # array of Time (minutes) for which the flex needs to be delivered
         
         # DERIVED PARAMS
         self.compute_derived_params(model)
@@ -769,53 +840,27 @@ class EV:
         self.soc_eff_per_period = self.eff_per_period / self.batt_size
         self.soc_v2geff_per_period = model.period_dur / self.batt_size / self.discharging_eff
     
-    def set_dist(self, data_dist):
-        """Returns one-way distance given by a cumulative distribution function
-        The distance is limited to 120km
-        """
-        # Default values for 
-        # Based on O.Borne thesis (ch.3), avg trip +-19km
-        s=0.736
-        scale=np.exp(2.75)
-        loc=0
-        
-        if type(data_dist) == dict:
-            if 's' in data_dist:
-                # Data as scipy.stats.lognorm params
-                s = data_dist['s']
-                loc = data_dist['loc']
-                scale = data_dist['scale']
-            if 'cdf' in data_dist:
-                # data as a cdf, containts cdf and bins values
-                cdf = data_dist['cdf']
-                if 'bins' in data_dist:
-                    bins_dist = data_dist['bins']
-                else:
-                    bins_dist = np.linspace(0, 100, num=51)
-                return random_from_cdf(cdf, bins_dist)
-            
-        d = stats.lognorm.rvs(s, loc, scale, 1)
-        #check that distance is under dmax = 120km, so it can be done with one charge
-        while d > 120:
-            d = stats.lognorm.rvs(s, loc, scale, 1)
-        return d
-    
-    def set_discrete_random_data(self, data_values, values_prob):
-        """ Returns a random value from a set data_values, according to the probability vector values_prob
-        """
-        return np.random.choice(data_values, p=values_prob)
-        
+
     def set_arrival_departure(self, mu_arr = 18, mu_dep = 8, 
                                     std_arr = 2, std_dep = 2,
                                     **kwargs):
         """ Sets arrival and departure times
-        """
-        dt = 0
+        """ 
+        # If data is a 2d pdf (correlated arrival and departure)
         if 'pdf_a_d' in kwargs:
-            self.arrival, self.departure = random_from_2d_pdf(kwargs['pdf_a_d'], bins_hours)
-            dt = (self.departure - self.arrival if not self.ovn
+            if 'bins' in kwargs:
+                bins = kwargs['bins'] 
+            else:
+                bins = bins_hours
+            self.arrival, self.departure = random_from_2d_pdf(kwargs['pdf_a_d'], bins)
+            # THIS IS SEMI-GOOD! CORRECT!!
+            dt = (self.departure - self.arrival if self.departure > self.arrival
                            else self.departure + 24 - self.arrival)
+        # else, if data is two cdf (not correlated)
+        # else, random from a normal distribution with mu and std_dev from inputs
         else:
+            dt = 0
+            # Why this 3! completely arbitrary!!!
             while dt < 3:
                 if 'cdf_arr' in kwargs:
                     self.arrival = random_from_cdf(kwargs['cdf_arr'], bins_hours)
@@ -838,9 +883,9 @@ class EV:
         self.dn_flex = np.zeros(model.periods)              # Battery flex capacity, lower bound (assumes bidir charger)
         self.mean_flex_traj = np.zeros(model.periods)       # Mean trajectory to be used to compute up & dn flex
         self.soc = np.zeros(model.periods)                  # SOC at time t
-        if self.up_dn_flex:                                 # kW of flexibility for self.flex_time minutes, for diffs baselines
-            self.up_flex_kw = np.zeros(model.periods)
-            self.dn_flex_kw = np.zeros(model.periods)
+        if self.flex_time:                                 # kW of flexibility for self.flex_time minutes, for diffs baselines
+            self.up_flex_kw = np.zeros([len(self.flex_time), model.periods])
+            self.dn_flex_kw = np.zeros([len(self.flex_time), model.periods])
 #            self.up_flex_kw_meantraj =  np.zeros(model.periods)
 #            self.up_flex_kw_immediate =  np.zeros(model.periods)
 #            self.up_flex_kw_delayed =  np.zeros(model.periods)
@@ -901,7 +946,7 @@ class EV:
         # TODO: extend to add stochasticity
         dist = (self.dist_wd + max(0, np.random.normal() * self.var_dist_wd) 
                     if model.days[model.day] < 5 
-                    else self.dist_we + max(0, np.random.normal() * self.var_dist_we) )
+                    else self.dist_we + max(0, np.random.normal() * self.var_dist_we))
         if dist * self.n_trips * self.driving_eff > self.batt_size:
             #This means that home-work trip is too long to do it without extra charge, 
             # so forced work charging (i.e one trip)
@@ -930,20 +975,21 @@ class EV:
             self.extra_energy[model.day] += (0.05 - self.soc_ini[model.day]) * self.batt_size
             self.soc_ini[model.day] = 0.05
             
-    def define_charging_status(self, model):
+    def define_charging_status(self, model, next_trip_energy=None):
         """ Defines charging status for the session. 
         True means it will charge this session
         """
         # TODO: How to compute next_trip?
-        next_trip_energy = ((self.dist_wd if model.days[model.day + 1] < 5 
-                                            else self.dist_we) * 
-                            self.n_trips * self.driving_eff)
+        if next_trip_energy is None:
+            next_trip_energy = ((self.dist_wd if model.days[model.day + 1] < 5 
+                                                else self.dist_we) * 
+                                self.n_trips * self.driving_eff)
         min_soc_trip = max(next_trip_energy * self.range_anx_factor / self.batt_size, self.min_soc)
         
         # TODO: Other types of charging ?
         if self.charging_type == 'all_days':
             return True
-        if self.charging_type == 'weekdays':
+        if self.charging_type in 'weekdays':
             if not model.days[model.day] in model.weekends:
                 return True
             return False
@@ -980,15 +1026,17 @@ class EV:
     def do_charging(self, model):
         """ Computes charging potential and calls charging function
         """
-        delta = model.day * model.periods_day
-        tini = int(self.arrival * model.periods_hour)
         # Computes index for charging session
-        if self.departure < self.arrival:
-            tend = int((self.departure + 24) * model.periods_hour)    
-        else:
-            tend = int(self.departure *  model.periods_hour)
-        idx_tini = max([0, delta + tini])
-        idx_tend = min([delta + tend, model.periods-1])
+        delta_day = model.day * model.periods_day
+        tini = int(self.arrival * model.periods_hour)
+        delta_session = int((self.arrival + self.dt) * model.periods_hour)
+#        if self.departure < self.arrival:
+#            tend = int((self.departure + 24) * model.periods_hour)    
+#        else:
+#            tend = int(self.departure *  model.periods_hour)
+        idx_tini = max([0, delta_day + tini])
+        idx_tend = min([delta_session + delta_day, model.periods-1])
+#        idx_tend = min([delta + tend, model.periods-1])
         
         if idx_tini >= idx_tend:
             self.do_zero_charge(model, idx_tini, idx_tend)
@@ -1006,6 +1054,7 @@ class EV:
         # Check for aggregators limit
         if self.boss != None:
             if self.boss.param_update in ['capacity', 'all']:
+                # TODO: this potential is in PU, not in kW
                 potential = np.min([potential, self.boss.available_capacity[idx_tini:idx_tend+1]], axis=0)
         
         # Save in potential and off peak vectors
@@ -1017,7 +1066,7 @@ class EV:
         self.compute_up_dn_flex(model, idx_tini, idx_tend)
         self.compute_charge(model, idx_tini, idx_tend)
         self.compute_soc_end(model, idx_tend)
-        if self.up_dn_flex:
+        if self.flex_time:
             self.compute_up_dn_flex_kw(model, idx_tini, idx_tend)
         return idx_tini, idx_tend
     
@@ -1082,28 +1131,29 @@ class EV:
         This values are Power to be seen from the grid, not flexibility wrt a given baseline
         """
         # Flex time, in model steps
-        flex_steps = int(self.flex_time / model.step)
-        
-        if flex_steps > (idx_tend-idx_tini):
-            return
-        
-        # Upper bounds and lower bounds on SOC, considering the flex_steps shift:
-        soc_end = min(self.soc[idx_tend], self.target_soc) * self.batt_size
-#        soc_ini = self.soc_ini[model.day] * self.batt_size
-        low_bound = np.concatenate((self.dn_flex[idx_tini+(flex_steps-1):idx_tend+1], 
-                                   np.ones(flex_steps-1) * soc_end))  
-        high_bound = np.concatenate((self.up_flex[idx_tini+(flex_steps-1):idx_tend+1], 
-                                    np.ones(flex_steps-1) * self.batt_size)) # Max high bound is always max batt_size
-        
-        # SOC baselines:
-        soc_b = self.soc[idx_tini:idx_tend+1] * self.batt_size
+        for i, f in enumerate(self.flex_time):
+            flex_steps = int(f / model.step)
             
-        # Up and down kWs based on given battery trajectories:
-        kwh_to_kw_up = 1/((self.flex_time / 60) * self.charging_eff)
-        kwh_to_kw_dn = 1/(self.flex_time / 60) * self.discharging_eff
-        
-        self.up_flex_kw[idx_tini:idx_tend+1]  = ((high_bound-soc_b) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
-        self.dn_flex_kw[idx_tini:idx_tend+1]  = ((low_bound-soc_b) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
+            if flex_steps > (idx_tend-idx_tini):
+                return
+            
+            # Upper bounds and lower bounds on SOC, considering the flex_steps shift:
+            soc_end = min(self.soc[idx_tend], self.target_soc) * self.batt_size
+    #        soc_ini = self.soc_ini[model.day] * self.batt_size
+            low_bound = np.concatenate((self.dn_flex[idx_tini+(flex_steps-1):idx_tend+1], 
+                                       np.ones(flex_steps-1) * soc_end))  
+            high_bound = np.concatenate((self.up_flex[idx_tini+(flex_steps-1):idx_tend+1], 
+                                        np.ones(flex_steps-1) * self.batt_size)) # Max high bound is always max batt_size
+            
+            # SOC baselines:
+            soc_b = np.concatenate(([self.soc_ini[model.day]], self.soc[idx_tini:idx_tend])) * self.batt_size
+                
+            # Up and down kWs based on allowed battery trajectories:
+            kwh_to_kw_up = 1/((f / 60) * self.charging_eff)
+            kwh_to_kw_dn = 1/(f / 60) * self.discharging_eff
+            
+            self.up_flex_kw[i, idx_tini:idx_tend+1]  = ((high_bound-soc_b) * kwh_to_kw_up).clip(-self.charging_power, self.charging_power)
+            self.dn_flex_kw[i, idx_tini:idx_tend+1]  = ((low_bound-soc_b) * kwh_to_kw_dn).clip(-self.charging_power, self.charging_power)
      
     def compute_soc_end(self, model, idx_tend=False):
         """ Calculates SOC at the end of the charging session
@@ -1116,6 +1166,9 @@ class EV:
     def new_day(self, model, get_idxs=False):
         # Update for a new day:
         # Compute arrivals and departures
+        if not (self.charge_schedule is None):
+           idxs = self.scheduled(model, get_idxs=True)
+           return idxs
         if model.days[model.day] in model.weekends:
                 self.set_arrival_departure(**self.arrival_departure_data_we)                    
         else:
@@ -1132,7 +1185,52 @@ class EV:
             idxs =  0, 0
         if get_idxs:
             return idxs
-    
+        
+    def scheduled(self, model, get_idxs=False):
+        # Update for a new day, for an EV with given schedules (a DataFrame of arrivals, departures and trips)
+        sessions = self.charge_schedule[self.charge_schedule.ArrDay == model.day]
+        n = 0
+        idxs = [0,0]
+        if (len(sessions) == 0) & (self.soc_end[model.day]==0):
+            self.soc_end[model.day] = self.soc_end[model.day-1]
+        for i, s in sessions.iterrows():            
+            # do session:
+            # set arr, dep
+            self.arrival = s.ArrTime
+            self.departure = s.DepTime
+            self.dt = s.DepTime - s.ArrTime + 24 * (s.DepDay - s.ArrDay)
+            # set Energy of trip:
+            self.energy_trip[model.day] += min(self.batt_size, s.TripDist * self.driving_eff)
+            self.extra_energy[model.day] += max(s.TripDist * self.driving_eff - self.batt_size, 0)
+            # compute soc ini:
+            if n == 0:
+                self.compute_soc_ini(model)
+            else:
+                self.soc_ini[model.day] = max(self.soc_end[model.day] - (s.TripDist * self.driving_eff / self.batt_size),0)
+            # def charging status, next trip distance is known from schedule
+            try:
+                next_trip_energy = self.charge_schedule.TripDist[i+1]*self.driving_eff
+            except:
+                next_trip_energy = self.charge_schedule.TripDist[i]*self.driving_eff
+            self.ch_status[model.day] = self.define_charging_status(model, 
+                                        next_trip_energy=next_trip_energy)
+            # do charging (or not)
+            if self.ch_status[model.day]:
+                ixs = self.do_charging(model)
+                # Updating indexes to consider
+                if idxs == [0,0]:
+                    idxs = list(ixs)
+                else:
+                    idxs[1] = ixs[1]
+            else:
+                self.compute_soc_end(model)
+            # next session
+            n += 1
+            # Correcting End soc for sessions lasting multiple days (same soc end for those days)
+            if s.DepDay > s.ArrDay+1:
+                self.soc_end[model.day:s.DepDay-1] = self.soc_end[model.day]
+        return idxs
+        
     def reset(self, model):
         self.soc_ini = self.soc_ini * 0                 #list of SOC ini at each day (of charging session)
         self.soc_end = self.soc_end * 0                 #list of SOC end at each day (of charging session)
@@ -1393,8 +1491,68 @@ class EV_optimcharge(EV):
         self.cost[model.day] = (power * prices).sum()
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
-        
-                
+
+#class EVSE(EV):
+#    """ Public EVSE. Occupation varies each day. Can have multiple sessions per day.
+#    """
+#    def __init__(self, model, name, 
+#                 arrival_departure_data_wd,
+#                 arrival_departure_data_we,
+#                 charging_power,
+#                 requested_kwh,
+#                 charging_proba,
+#                 **params):
+#        super.__init__(model, name, 
+#                       **params)
+#        self.requested_kwh_distr = requested_kwh_distr
+#        self.requested_kwh = np.zeros(model.ndays)
+##        self.model = model
+##        self.name = name
+##        self.charging_power = charging_power
+##        
+##        # arrival departure times
+##        self.arrival_departure_data_wd = arrival_departure_data_wd
+##        self.arrival_departure_data_we = arrival_departure_data_we
+##        
+##        # requested kwh per charging session
+##        # this can be a distribution
+##        self.requested_kwh = requested_kwh
+##        # probability of charging session per day (<=1)
+##        self.charging_proba = charging_proba
+##        # EV charging params
+##        self.soc_end = soc_end
+##        self.soc_ini = soc_ini
+##        # EV params
+##        self.batt_size = batt_size
+##     
+#    
+#     def compute_energy_trip(self, model):
+#        self.requested_kwh[model.day] = random_from_cdf(self.requested_kwh_distr, bins)
+#        
+#        
+#     def new_day(self, model, get_idxs=False):
+#        # Update for a new day:
+#        # Proba if there is a charging session:
+#        if not self.check_charging_session(model):
+#            return
+#        # Compute arrival and departure
+#        if model.days[model.day] in model.weekends:
+#                self.set_arrival_departure(**self.arrival_departure_data_we)                    
+#        else:
+#            self.set_arrival_departure(**self.arrival_departure_data_wd)
+#        # Computes initial soc based on requested kwhs
+#        self.compute_energy_trip(model)
+#        self.compute_soc_ini(model)
+#        # Defines if charging is needed
+#        self.ch_status[model.day] = self.define_charging_status(model)
+#        if self.ch_status[model.day]:
+#            idxs = self.do_charging(model)
+#        else:
+#            self.compute_soc_end(model)
+#            idxs =  0, 0
+#        if get_idxs:
+#            return idxs   
+#                
 class Aggregator():
     """ Aggregator can interact with grid and EVs
     Updates EV signals (prices or limits)
@@ -1412,6 +1570,9 @@ class Aggregator():
             => 19.4 c€/MWh => 0.019 c€/kWh
             This value should be updated for considered Fleet sizes, EV penetrations, price slopes, etc
         capacity = Available capacity for the fleet [kW]. It can be also a numpy array of len(model.periods)
+        Approach quite similar to game-theoretic algorithms (though simpler) found in 
+            Beaude 2016 'Reducing the Impact of EV Charging Operations on
+            the Distribution Network'
             
         """
         self.name = name

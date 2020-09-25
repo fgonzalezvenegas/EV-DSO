@@ -85,7 +85,9 @@ def plot_v_profile(net, ax=None, vmin=0.95, vmax=1.05):
     ax.legend()
     
 def print_losses_feeder(net):
-    
+    """ Prints losses info per Feeder for last results stored in the net
+    Input: PandaPower net
+    """
     if 'Feeder' in net.line:
         fs =  net.line.Feeder.unique()
         fs.sort()
@@ -159,13 +161,13 @@ def add_res_pv_rooftop(net, pv_penetration, iris_data, pv_cap_kw=4,
         p_mw =  npv * pv_cap_kw/1000 * 1/n_trafos
         # cummulative MW
         cum_mw += p_mw
-        npvs += npv * 1/ntrafos
+        npvs += npv * 1/n_trafos
         # Create transfo as static gen
-        pp.create_sgen(net, bus=b, p_mw=p_mw, q_mvar=0, name='RES_PV_' + str(t['name']))    
-    print('Created {:.3f} MW of PV, equivalent to {} installations'.format(cum_mw, npvs))
+        pp.create_sgen(net, bus=b, p_mw=p_mw, q_mvar=0, name='RES_PV_' + str(t['name']), type='RES_PV')    
+    print('Created {:.3f} MW of PV, equivalent to {} installations'.format(cum_mw, int(npvs)))
 
 def add_random_pv_rooftop(net, mean_size=0.1, std_dev=0.5, 
-                          total_mw=2, buses=None, replace=False, name='randomPV'):
+                          total_mw=2, buses=None, replace=False, name='randomPV', sgtype='PV'):
     """ Adds total_mw of random PV generator(s) as static generator to net.
     
     The size of PV plant will be given by a normal dist with mean mean_size and \sigma=std_dev
@@ -193,7 +195,7 @@ def add_random_pv_rooftop(net, mean_size=0.1, std_dev=0.5,
         b = np.random.choice(buses)
         p_mw = np.random.normal(loc=mean_size, scale=std_dev)
         # creating sgen
-        pp.create_sgen(net, bus=b, p_mw=p_mw, name=name+str(npv))
+        pp.create_sgen(net, bus=b, p_mw=p_mw, name=name+str(npv), type=sgtype)
         npv += 1
         cum_mw += p_mw
         # checking break
@@ -341,7 +343,7 @@ class Iterator():
                 print(i)
             if (i % (len(time_steps)/dt)) < li:
                 t.append(time.time())
-                print('\tComputing: {}% done. Elapsed time {}h{}:{:.2f} '.format(int(i//(len(time_steps)/100)), *util.sec_to_time(t[-1]-t[0])))
+                print('\tComputing: {:2d}% done. Elapsed time {:2d}h{:02d}:{:02.2f} '.format(int(i//(len(time_steps)/100)), *util.sec_to_time(t[-1]-t[0])))
             li = i % (len(time_steps)/dt)
             self.profiler.update(ts)
             pp.runpp(self.net, run_control=True)

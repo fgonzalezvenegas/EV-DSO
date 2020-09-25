@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """
 Created on Thu Mar 12 17:34:48 2020
+Script that iterates over a range of EV fleet sizes.
+
+Use case for CIRED Berlin 2020 paper
 
 @author: U546416
 """

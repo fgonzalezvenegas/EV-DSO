@@ -84,7 +84,7 @@ ps0 = 'Boriette'
 n0 = ps.node[ps0]
 
 dep = 19
-polys = iris_poly[iris_poly.Departement == dep][['IRIS_NAME', 'Polygon', 'Lon', 'Lat']]
+polys = iris_poly[iris_poly.DEP_CODE == dep][['IRIS_NAME', 'Polygon', 'Lon', 'Lat']]
 polys.columns = ['Name', 'Polygon', 'xGPS', 'yGPS']
 
 

@@ -60,34 +60,34 @@ def connected(lines, node):
             nl += connected(lines.drop(nl), nn)
     return nl
 
-
-def dist_to_node(lines, node, dist=None, maxd=80, name=None):
-    """ Returns a pd.Series of with the min distance of nodes to a given Node
-    """
-    if dist is None:
-        if name is None:
-            name=node
-        dist = pd.Series(index=unique_nodes(lines), dtype=float, name=name)
-    if not dist[node] == dist[node]:
-        dist[node] = 0 
-    d0 = dist[node]
-    # Lines coming to node 
-    nl = to_node(lines, node) 
-    if len(nl)>0:
-        # Iterating over lines
-        for l in nl:
-            # Get other node and new tentative distance
-            nout = lines.node_e[l] if lines.node_i[l] == node else lines.node_i[l]
-            nd = lines.Length[l] + d0
-            if nd < maxd*1000: #Max distance set at maxd km, useful to keep computing time reduced
-                if not (dist[nout] <= nd):
-                    # If tentative distance is less (or new), it updates the data
-                    dist[nout] = nd
-                    # Compute new distances from this new node, 
-                    # this will modify the pd.Series dist inplace
-                    dist_to_node(lines.drop(l), nout, dist=dist)
-                    # dist = pd.DataFrame([dist,dist2]).T.min(axis=1)
-    return dist
+#
+#def dist_to_node(lines, node, dist=None, maxd=80, name=None):
+#    """ Returns a pd.Series of with the min distance of nodes to a given Node
+#    """
+#    if dist is None:
+#        if name is None:
+#            name=node
+#        dist = pd.Series(index=unique_nodes(lines), dtype=float, name=name)
+#    if not dist[node] == dist[node]:
+#        dist[node] = 0 
+#    d0 = dist[node]
+#    # Lines coming to node 
+#    nl = to_node(lines, node) 
+#    if len(nl)>0:
+#        # Iterating over lines
+#        for l in nl:
+#            # Get other node and new tentative distance
+#            nout = lines.node_e[l] if lines.node_i[l] == node else lines.node_i[l]
+#            nd = lines.Length[l] + d0
+#            if nd < maxd*1000: #Max distance set at maxd km, useful to keep computing time reduced
+#                if not (dist[nout] <= nd):
+#                    # If tentative distance is less (or new), it updates the data
+#                    dist[nout] = nd
+#                    # Compute new distances from this new node, 
+#                    # this will modify the pd.Series dist inplace
+#                    dist_to_node(lines.drop(l), nout, dist=dist)
+#                    # dist = pd.DataFrame([dist,dist2]).T.min(axis=1)
+#    return dist
 
 def dist_to_node_nx(lines, n0, name='name'):
     """ Returns a pd.Series of with the min distance of nodes to a given Node
@@ -99,43 +99,43 @@ def dist_to_node_nx(lines, n0, name='name'):
         g.add_edge(t.node_i, t.node_e, weight=t.Length)
     d = pd.Series(nx.single_source_dijkstra_path_length(g, n0), name=name)
     return d.sort_index()
-        
-    
-def get_ind_feeders(lines, n0, verbose=False):
-    """ Returns a list of independent feeder connected to the Main SS (n0)"""
-    # Lines connected to main node
-    ls = to_node(lines, n0)
-    # Sub-dataframe of lines, without the first lines connected to main node
-    l_ = lines[lines.Connected].drop(ls)
-    # New 'initial nodes'
-    nn = new_nodes(lines.loc[ls], n0)
-    feeder = pd.Series(index=lines.index, dtype=str)
-
-    if verbose:
-        print('Initial feeders = {}'.format(len(nn)))
-    nfs = 0
-    # For each initial feeder, comupte all lines connected to it
-    for i, n in enumerate(nn):
-        if verbose:
-            print('\tFeeder {}'.format(i))
-        # check if first line already is in one subset:
-        l0  = to_node(l_, n)[0]
-        if feeder[l0] == feeder[l0]:
-            continue
-        
-        # Lines connected to node 'n'
-        c = connected(l_, n)
-        feeder[c] = 'F{:02d}'.format(nfs)
-        nfs += 1
-    # Add first lines to each feeder
-    for l in ls:
-        n = lines.node_i.loc[l] if lines.node_i.loc[l] != n0 else lines.node_e.loc[l]
-        l2 = to_node(l_, n)[0]
-        feeder[l] = feeder[l2]
-            
-    if verbose:
-        print('Finished computing indepentent feeder, Total={}'.format(nfs))
-    return feeder
+#        
+#    
+#def get_ind_feeders(lines, n0, verbose=False):
+#    """ Returns a list of independent feeder connected to the Main SS (n0)"""
+#    # Lines connected to main node
+#    ls = to_node(lines, n0)
+#    # Sub-dataframe of lines, without the first lines connected to main node
+#    l_ = lines[lines.Connected].drop(ls)
+#    # New 'initial nodes'
+#    nn = new_nodes(lines.loc[ls], n0)
+#    feeder = pd.Series(index=lines.index, dtype=str)
+#
+#    if verbose:
+#        print('Initial feeders = {}'.format(len(nn)))
+#    nfs = 0
+#    # For each initial feeder, comupte all lines connected to it
+#    for i, n in enumerate(nn):
+#        if verbose:
+#            print('\tFeeder {}'.format(i))
+#        # check if first line already is in one subset:
+#        l0  = to_node(l_, n)[0]
+#        if feeder[l0] == feeder[l0]:
+#            continue
+#        
+#        # Lines connected to node 'n'
+#        c = connected(l_, n)
+#        feeder[c] = 'F{:02d}'.format(nfs)
+#        nfs += 1
+#    # Add first lines to each feeder
+#    for l in ls:
+#        n = lines.node_i.loc[l] if lines.node_i.loc[l] != n0 else lines.node_e.loc[l]
+#        l2 = to_node(l_, n)[0]
+#        feeder[l] = feeder[l2]
+#            
+#    if verbose:
+#        print('Finished computing indepentent feeder, Total={}'.format(nfs))
+#    return feeder
 
 def get_ind_feeders_nx(lines, n0, verbose=False):
     """ Returns a list of independent feeder connected to the Main SS (n0)"""
@@ -148,10 +148,19 @@ def get_ind_feeders_nx(lines, n0, verbose=False):
     cc = list(nx.connected_components(g))
     # Putting it in pd.Series
     feeder = pd.Series(index=lines.index)
+    feeder_length = {}
     nfs = 0
     for fs in cc:
         lls = lines[(lines.node_i.isin(fs)) | (lines.node_e.isin(fs))].index
-        feeder[lls] = 'F{:02d}'.format(nfs)
+        feeder[lls] = nfs
+        feeder_length[nfs] = lines.Length[lls].sum()
+        nfs += 1
+    # renaming feeders from shortest to longest
+    feeder_length = pd.Series(feeder_length)
+    feeder_length.sort_values(inplace=True)
+    nfs = 0
+    for fs in feeder_length.index:
+        feeder[feeder == fs] = 'F{:02d}'.format(nfs)
         nfs += 1
     if verbose:
         print('Initial feeders = {}'.format(len(to_node(lines,n0))))      
@@ -580,7 +589,7 @@ colors_tech = {'Underground' : ['maroon', 'red', 'orangered', 'salmon', 'khaki']
 class on_off_lines:
     
     def __init__(self, lines, n0, nodes=None, ax=None, ss=None, 
-                 lv=None, geo=None, distances=None, GPS=False, tech=None,
+                 lv=None, geo=None, GPS=False, tech=None,
                  profiles=None,
                  outputfolder=''):
         self.lines = lines
@@ -604,7 +613,8 @@ class on_off_lines:
         self.ss = ss
         self.lv = lv
         self.geo = geo
-        self.dist = distances
+        self.dist = None
+        self.recom_dist()
         self.tech = tech        # Line types tech data
         self.outputfolder = outputfolder
         if not self.tech is None:
@@ -644,10 +654,6 @@ class on_off_lines:
         self.lastevent = []
     
     def do_buttons(self):
-        # Add button to (re)compute distances to nodes
-        axbutton = plt.axes([0.05, 0.05, 0.18, 0.075])
-        self.buttond = Button(axbutton, 'Recompute Distance\nTo Substations')
-        self.buttond.on_clicked(self.recom_dist)
         
         # Add button to recompute feeders
         axbutton = plt.axes([0.3, 0.05, 0.18, 0.075])
@@ -776,10 +782,10 @@ class on_off_lines:
         number_init_feeders(self.lines, self.n0)
         self.ax.clear()
         self.draw()
+        self.recom_dist()
     
     def recom_dist(self, event=None):
         print('\nRecomputing distances to HV/MV substations')
-        print('\tThis may take a while')
         df = pd.DataFrame()
         l = self.lines[self.lines.Connected][['Length','node_i','node_e']]
         for p in self.ss.index:

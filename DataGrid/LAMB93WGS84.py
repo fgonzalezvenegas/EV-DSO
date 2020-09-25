@@ -94,12 +94,20 @@ while i<len(shape):
     if len(s.shape.parts)==1:
         #Normal Polygon
         iris[code].append('Polygon')
+        # adding area
+        iris[code].append(util.area(s.shape.points))
         iris_poly[code] = [ct.polygon_LAMB93_WGS84(s.shape.points)]
     else:
         iris[code].append('MultiPolygon')
         parts = list(s.shape.parts) + [len(s.shape.points)]
         poly = ct.polygon_LAMB93_WGS84(s.shape.points)
         iris_poly[code] = [poly[parts[i]:parts[i+1]] for i in range(len(parts)-1)]
+        # computing area
+        points = s.shape.points
+        a=0
+        for p1,p2 in zip(parts[:-1], parts[1:]): 
+            a += util.area(points[p1:p2])/1e6
+        iris[code].append(a)
         mp +=1
     i+=1
 ts.append(time.time())
@@ -109,11 +117,13 @@ print(i, ';\tAssigned IRIS:', len(iris), ';\tMultiPolygons:', mp, ';\tLap (s):',
 
 
 #%%checking and saving
-iris = pd.DataFrame(iris, index=['COMM_CODE', 'COMM_NAME', 'IRIS_NAME', 'IRIS_TYPE', 'PolygonType']).transpose()
-polygons = util.do_polygons(iris, plot=True)
+iris = pd.DataFrame(iris, index=['COMM_CODE', 'COMM_NAME', 'IRIS_NAME', 'IRIS_TYPE', 'PolygonType', 'IRIS_AREA']).transpose()
 #iris.to_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Base\GeoData\IRIS_all_geo.csv')
 iris['Polygon'] = pd.Series(iris_poly)
+polygons = util.do_polygons(iris, plot=True)
 iris['Lon'] = iris.Polygon.apply(lambda x: np.mean(np.asarray(x[0]), axis=0)[0])
 iris['Lat'] = iris.Polygon.apply(lambda x: np.mean(np.asarray(x[0]), axis=0)[1])
+iris['DEP_CODE'] = iris.COMM_CODE // 1000
 iris.index.name = 'CODE_IRIS'
-iris.to_csv(r'c:\user\U546416\Documents\PhD\Data\Mobilité\Data_Base\GeoData\IRIS_all_geo_2016.csv')
+# Saving data
+iris.to_csv(r'c:\user\U546416\Documents\PhD\Data\DataGeo\IRIS_all_geo_2016.csv')

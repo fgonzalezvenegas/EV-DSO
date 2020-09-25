@@ -16,6 +16,7 @@ import coord_transform as ct
 import util
 
 #%% Reading data
+# Folder of input data
 folder = r'C:\Users\felip_001\Downloads\Boriette\\'
 
 fnps = 'poste-source.xlsx'

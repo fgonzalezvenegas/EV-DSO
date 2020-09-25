@@ -33,7 +33,8 @@ def split_by_days(data, step=5):
     ndays = int(lendata / steps_day)
     return np.reshape(data, [nevs, ndays, steps_day])
     
-def drop_days(data, days_before=7, days_after=1, step=5, drop_we=False, shift=0):
+def drop_days(data, days_before=7, days_after=1, step=5, 
+              drop_we=False, shift=0):
     """ Returns the data array without buffer days (before and after)
     """
     
@@ -41,12 +42,12 @@ def drop_days(data, days_before=7, days_after=1, step=5, drop_we=False, shift=0)
     idx_tini = ((days_before * 24) + shift) * int(60/step)
     
     idx_tend = ((days_after * 24) + (24 - shift))* int(60/step)
-#    if np.ndim(data) == 1:
-#        lendata = len(data)
-#        drops = data[idx_tini:lendata-idx_tend]
-#    else:
-    nevs, lendata = np.shape(data)
-    drops =  data[:,idx_tini:lendata-idx_tend]
+    if np.ndim(data) == 3: # This means there are more than one flex time profiles
+        nevs, nflex, lendata = np.shape(data)
+        drops =  data[:,:,idx_tini:lendata-idx_tend]
+    else:
+        nevs, lendata = np.shape(data)
+        drops =  data[:,idx_tini:lendata-idx_tend]
     
     if drop_we:
         drops = drop_weekends(drops, step)
@@ -74,7 +75,7 @@ def drop_weekends(data, step=5):
 def get_av_window(profs, av_window_idxs):
     return profs[:,:,av_window_idxs[0]:av_window_idxs[1]]
 
-def get_ev_profs(grid, nameset='all', ovn=True, av_days='wd', baseline='immediate', step=5):
+def get_ev_profs(grid, nameset='all', ovn=True, av_days='wd', step=5):
     
     if nameset=='all':
         evs = grid.get_evs()
@@ -83,12 +84,13 @@ def get_ev_profs(grid, nameset='all', ovn=True, av_days='wd', baseline='immediat
     ch_profs = np.array([ev.charging for ev in evs])
     
     # Possible kWs that could be proposed to DSO, for a flex service (not yet taking into account baselines)
-    if baseline in ['imm', 'im', 'i', 'immediate', 'dumb']:
-        dn_profs = np.array([ev.dn_flex_kw_immediate for ev in evs])
-    elif baseline in ['delayed', 'del', 'd']:
-        dn_profs =  np.array([ev.dn_flex_kw_delayed for ev in evs])
-    elif baseline in ['meantraj', 'mean', 'm', 'mean_trajectory', 'mt']:
-        dn_profs =  np.array([ev.dn_flex_kw_delayed for ev in evs])
+    dn_profs = np.array([ev.dn_flex_kw for ev in evs])
+#    elif baseline in ['delayed', 'del', 'd']:
+#        dn_profs =  np.array([ev.dn_flex_kw_delayed for ev in evs])
+#    elif baseline in ['meantraj', 'mean', 'm', 'mean_trajectory', 'mt']:
+#        dn_profs =  np.array([ev.dn_flex_kw_delayed for ev in evs])
+    
+        
          
     #split by days
     if ovn:
@@ -104,28 +106,46 @@ def get_ev_profs(grid, nameset='all', ovn=True, av_days='wd', baseline='immediat
     
     # Drop buffer days and weekends (if needed)    
     # Possible kWs profiles that could be proposed to DSO, split by days. An array of shape (nevs, ndays, nsteps (per day)) 
-        
-    dn_profs = split_by_days(drop_days(dn_profs, days_before=7, 
+    if dn_profs.ndim == 3:
+        dn_profs_multi = {}
+        for i in range(dn_profs.shape[1]):
+            dn_profs_multi[i] = split_by_days(drop_days(dn_profs[:,i,:], days_before=7, 
+                                             days_after=days_after, step=step, 
+                                             drop_we=drop_we, shift=shift), step=step)
+    else:
+        dn_profs_multi = split_by_days(drop_days(dn_profs, days_before=7, 
                                          days_after=days_after, step=step, 
                                          drop_we=drop_we, shift=shift), step=step)
- 
+     
     ch_profs = split_by_days(drop_days(ch_profs, days_before=7,
                                        days_after=days_after, step=step, 
                                        drop_we=drop_we, shift=shift), step=step)
-    return ch_profs, dn_profs
+    return ch_profs, dn_profs_multi
  
 def get_fleet_profs(ch_profs, dn_profs, nevs_fleet, nfleets=1000):      
-    (n_evs, ndays, nsteps) = dn_profs.shape
+    (n_evs, ndays, nsteps) = ch_profs.shape
     
     # Compute aggregated profiles for EV fleets
     nint = np.random.randint(0,n_evs,size=(nfleets, nevs_fleet)) # Fleets, based on combinations of EV indexes
-#    fleet_dn = np.zeros((nfleets, ndays, nsteps))
-#    fleet_ch_profs = np.zeros((nfleets, ndays, nsteps))
-#    for i in range(nfleets):
-    # up & dn profiles
-    fleet_dn = np.array([dn_profs[nint[i]].sum(axis=0) for i in range(nfleets)])
-    # Charging profiles for fleet
-    fleet_ch_profs = np.array([ch_profs[nint[i]].sum(axis=0) for i in range(nfleets)])
+    
+    fleet_ch_profs = np.zeros((nfleets, ndays, nsteps))
+    if type(dn_profs) == dict:
+        fleet_dn = {k : np.zeros((nfleets, ndays, nsteps)) 
+                    for k in dn_profs.keys()}
+    for i in range(nfleets):
+#     up & dn profiles
+        for j in range(nevs_fleet):
+            fleet_ch_profs[i] += ch_profs[nint[i,j]]
+            if type(dn_profs) == dict:
+                for k in dn_profs.keys():
+                    fleet_dn[k][i] += dn_profs[k][nint[i,j]]
+            else:
+                fleet_dn[i] += dn_profs[nint[i,j]]
+                    
+#    else:
+#        fleet_dn = np.array([dn_profs[nint[i]].sum(axis=0) for i in range(nfleets)])
+#    # Charging profiles for fleet
+#    fleet_ch_profs = np.array([ch_profs[nint[i]].sum(axis=0) for i in range(nfleets)])
     return fleet_ch_profs, fleet_dn
 
 
@@ -157,6 +177,13 @@ def get_baselines(fleet_ch_profs, bl='UKPN', ndays_bl=10, step=5):
         return enedis_bls
     
 def get_flex_wrt_bl(fleet_dn, baseline, baseload=0, V2G=True):
+    if type(fleet_dn) == dict:
+        if V2G:    
+            return {k: baseline - baseload - fleet_dn[k]
+                    for k in fleet_dn.keys()}
+        else: # V1G flex
+            return {k: baseline - baseload - fleet_dn[k].clip(min=0)
+                    for k in fleet_dn.keys()}
     if V2G:    
         return baseline - baseload - fleet_dn
     else: # V1G flex
@@ -164,47 +191,55 @@ def get_flex_wrt_bl(fleet_dn, baseline, baseload=0, V2G=True):
 
 def compute_payments(flex, av_payment, ut_payment, 
                      nevents, days_of_service, conf=0.9,
-                     service_time=30, step=5,
+                     service_time=30, step=5, penalty=0,
                      min_delivery=0.6, min_bid=50, nscenarios=1000):
     """ 
     """
     (nfleets, ndays, nsteps) = flex.shape
-    nsteps_service = int(service_time / step) # Number of steps
+#    nsteps_service = int(service_time / step) # Number of steps
     len_av_window = nsteps * step / 60 # Hours
     # define kws. Option 1: mean value of expected flex kWs (per fleet?)
 #    flex_bid = flex.mean(axis=(1,2))
     
     # define kws. Option 2: mean of profile at 90%?
-    nconf = int((1-conf) * ndays)
-    flex_bid = np.mean(np.sort(flex, axis=1)[:,nconf,:], axis=1) #sorts by day, select profile at nconf and do avg
-    
+    # It is one bid per fleet
+#    nconf = int((1-conf) * ndays)
+#    #sorts by day, select profile at nconf and do avg
+#    flex_bid = np.mean(np.sort(flex, axis=1)[:,nconf,:], axis=1) 
+    # option 2: among all days and times, it needs to fulfill the confidence level
+    nconf = int((1-conf) * nsteps * ndays)
+    flex_bid = np.sort(flex.reshape((nfleets, ndays*nsteps)), axis=1)[:, nconf]
     
     # Cut bids under minimum bid
     flex_bid = flex_bid * (flex_bid > min_bid)
     
     # evaluate delivery
     d = np.random.randint(0, ndays, (nscenarios, nevents))
-    t = np.random.randint(0, nsteps - nsteps_service, (nscenarios, nevents))
+    t = np.random.randint(0, nsteps, (nscenarios, nevents))
     
     flex_delivery  = flex[:,d,t]
     
     # Payments:
     # To simplify. Payment on energy + reduction of av payment on delivered energy / contracted energy.
     #  If delivers/contracted < 0.6, no payment 
-    # For simplicity no penalties considered
-    
+
     flex_delivery_pu = flex_delivery / np.tile(flex_bid, (nevents, nscenarios, 1)).T
-    
     flex_delivery_pu = (flex_delivery_pu).clip(max=1) * (flex_delivery_pu > min_delivery)
-    
+
     undelivery_ratio = (flex_delivery_pu < min_delivery).mean(axis=(2))
+
+    # correcting nans that arise when flex_bid == 0
+    flex_delivery_pu = np.nan_to_num(flex_delivery_pu)
     
     # expected payment for each firm kW    
     expected_payment = (av_payment * len_av_window * days_of_service) / 1000 + (ut_payment * service_time/60 * nevents) / 1000
     
-    flex_payments = np.tile(flex_bid, (nscenarios,1)).T * flex_delivery_pu.mean(axis=2) * expected_payment
+    # Penalties considered for activations with under-delivery<min_delivery%. 
+    # Penalties = Expected payment * penalty [pu]
+    flex_payments = (np.tile(flex_bid, (nscenarios,1)).T * flex_delivery_pu.mean(axis=2) * expected_payment - 
+                     np.tile(flex_bid, (nscenarios,1)).T * undelivery_ratio * expected_payment * penalty)
     
-    return flex_bid, flex_payments.flat, undelivery_ratio.flat
+    return flex_bid, flex_payments.flatten(), undelivery_ratio.flatten()
 
 def get_av_window_vector(av_window, step, ovn=True):
     if ovn:

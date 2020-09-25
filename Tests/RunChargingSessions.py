@@ -31,11 +31,12 @@ def set_labels_eng(ax):
     ax.set_xticklabels(days)
     ax.set_ylabel('Power [MW]')
         
-def charging_sessions(grid):
+def charging_sessions(grid, key=None):
     # compute hist
+    nweeks = grid.ndays/7
     nsessions = np.asarray([ev.ch_status.sum() + (ev.extra_energy > 0).sum()
-                            for ev in grid.get_evs()])
-    h_bins = np.append(np.arange(1,9,1), 100)
+                            for ev in grid.get_evs(key)])/nweeks
+    h_bins = np.append(np.arange(0,9,1), 100)
     hs = np.histogram(nsessions, h_bins)
     return hs[0]/sum(hs[0])
 

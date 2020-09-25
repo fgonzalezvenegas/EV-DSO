@@ -13,7 +13,7 @@ import scipy.stats as stats
 import datetime as dt
 import os
 import importlib
-import util
+#import util
 
 # PARAMS
 
@@ -23,7 +23,7 @@ M = 1e6
 
 daysnames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
 dsnms = ['Mon', 'Tues', 'Wed', 'Thur', 'Fri', 'Sat', 'Sun']
-
+monthnames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 # For plotting
 deps_idf = [75, 77, 78, 91, 92, 93,  94, 95]
 cns_idf = ['Paris', 'Versailles', 'Évry', 'Meaux', 'Nemours', 'Cergy', 'Étampes', 'Provins']
@@ -98,6 +98,33 @@ def plot_segments(segments, ax='', loop=True, ends=False, **kwargs):
         if ends:
             ax.plot([x[0],x[-1]], [y[0],y[-1]], 'r*')
     return ax
+
+def plot_arr_dep_hist(hist, binsh=np.arange(0,24.5,0.5), ftitle=''):
+    """ Plots arrival and departure histogram
+    """
+    f, (ax, ax2) = plt.subplots(1,2)
+    i = ax.imshow(hist.T/hist.sum().sum(), origin='lower', extent=(0,24,0,24))
+    ax.set_title('Distribution of sessions')
+    ax.set_xlabel('Start of charging sessions')
+    ax.set_ylabel('End of charging sessions')
+    ax.set_xticks(np.arange(0,25,2))
+    ax.set_yticks(np.arange(0,25,2))
+    ax.set_xticklabels(np.arange(0,25,2))
+    ax.set_yticklabels(np.arange(0,25,2))
+    plt.colorbar(i, ax=ax)
+    
+    ax2.bar((binsh[:-1]+binsh[1:])/2, hist.sum(axis=1)/hist.sum().sum(), width=0.5, label='Arrivals')
+    ax2.bar((binsh[:-1]+binsh[1:])/2, -hist.sum(axis=0)/hist.sum().sum(), width=0.5, label='Departures')
+    ax2.set_xlim(0,24)
+    ax2.set_xticks(np.arange(0,25,2))
+    ax2.set_xticklabels(np.arange(0,25,2))
+    ax2.set_title('Arrival and departure distribution')
+    ax2.set_xlabel('Time [h]')
+    ax2.set_ylabel('Distribution')
+    ax2.legend()
+    ax2.grid()
+    f.suptitle(ftitle)
+    f.set_size_inches(11.92,4.43)
 
 def length_segment_WGS84(segment, unit='m'):
     """ Returns the length in meters of a segment
@@ -221,13 +248,21 @@ def aspect_carte_france(ax, title='', palette=None,
     ax.set_aspect(compute_aspect_carte(*a))
     # Do labels
     if labels != None:
-        for i in range(len(palette)):
-            ax.plot(1,1,'s', color=palette[i], label=labels[i])
-    ax.axis(a)
-    ax.legend(loc=3)
+        do_labels(labels, palette, ax)
+    # Write the name of some cities
     for i in range(len(cns)):
         ax.text(latlons[i][0],latlons[i][1]+delta_cns, cns[i], ha='center',
            path_effects=[pe.withStroke(linewidth=2, foreground='w')])
+
+def do_labels(labels, palette, ax, f=None):
+    a = ax.axis()
+    for i in range(len(palette)):
+            ax.plot(0,0,'s', color=palette[i], label=labels[i])
+    a=ax.axis(a)
+    if f is None:
+        ax.legend(loc=3)
+    else:
+        ax.figure.legend(loc=5)
 
 
 def compute_lognorm_cdf(hist, bins='', params=False, plot=False, ax=None):
@@ -289,7 +324,7 @@ def hist_ovl(load, max_load, h_nsteps=4):
         elif k>0:
             len_ovl.append(k)
             k=0
-    return np.histogram(len_ovl, bins=[i for i in range(1, h_nsteps+2)])
+    return np.histogram(len_ovl, bins=[i for i in range(0, h_nsteps+1)])
     
 def evaluate_max_load(base_load, ev_load, max_load, step=30):
     """ Evaluates the impact of a x days ev load for the full year.
@@ -336,7 +371,7 @@ def sec_to_time(s):
     return (int(s//3600), int((s//60)%60), (s%60))
     
 def compute_aspect_carte(lon1, lon2, lat1, lat2):
-    """
+    """ Sets the ratio of height/width for WGPS-based maps
     """   
     lat0, lon0 = (lat1+lat2)/2, (lon1+lon2)/2
     km_per_lat = computeDist([lat1, lon0], [lat2, lon0]) / abs(lat1-lat2)
@@ -357,4 +392,15 @@ def self_reload(module=None):
         importlib.reload(util)
     else:
         importlib.reload(module)
-    
+
+def input_y_n(message):
+    while True:
+        v =  input(message + ' (Y/N)')
+        if v in ['Y', 'y', 'N', 'n', True, False]:
+            return v
+def area(p):
+    return 0.5 * abs(sum(x0*y1 - x1*y0
+                         for ((x0, y0), (x1, y1)) in diff_segments(p)))
+
+def diff_segments(p):
+    return zip(p, p[1:] + [p[0]])
