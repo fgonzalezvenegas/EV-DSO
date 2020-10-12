@@ -35,7 +35,7 @@ fleet=31
 for s in sets:
     for a in av_w:
         for f in times:
-            filehead = 'full_' + s + '_' + a + '_'
+            filehead = 'full_' + s + '_' + a + '_extrapenalties_'
             data = pd.read_csv(folder + filehead + 'VxG.csv', index_col=[0,1,2,3,4,5])
             res['v1g', s, a, f] = data[bds].loc['v1g', fleet,f,conf,thr,pen].values
             res['v2g', s, a, f] = data[bds].loc['v2g', fleet,f,conf,thr,pen].values
@@ -103,7 +103,7 @@ fleets = np.logspace(np.log10(fleet_range[0]), np.log10(fleet_range[1]), num=nra
 for s in sets:
     for a in av_w:
         for f in fleets:
-            filehead = 'full_' + s + '_' + a + '_'
+            filehead = 'full_' + s + '_' + a + '_extrapenalties_'
             data = pd.read_csv(folder + filehead + 'VxG.csv', index_col=[0,1,2,3,4,5])
             res['v1g', s, a, f] = data[bds+pay].loc['v1g', f,t,conf,thr,pen].values
             res['v2g', s, a, f] = data[bds+pay].loc['v2g', f,t,conf,thr,pen].values
@@ -120,8 +120,8 @@ und = ['UnderDel_Avg', 'UnderDel_perc_l', 'UnderDel_perc_h']
 res = {}
 t = 30
 conf = [0.5, 0.9, 0.99]
-thr = [0.6,0.8]
-pen = [0,17.5,50]
+thr = [0.6,0.8,0.9]
+pen = [0,17.5,35,50]
 #fleet=31
 #fleet = 71
 fleet_range = [10,500]
@@ -130,7 +130,7 @@ fleets = np.logspace(np.log10(fleet_range[0]), np.log10(fleet_range[1]), num=nra
 
 for a in av_w:
     for s in sets:    
-        filehead = 'full_' + s + '_' + a + '_'
+        filehead = 'full_' + s + '_' + a + '_extrapenalties_'
         data = pd.read_csv(folder + filehead + 'VxG.csv', index_col=[0,1,2,3,4,5])
         for f in fleets:
             for c in conf:
@@ -201,7 +201,7 @@ th = 0.6
 p=0
 alphas = [1,0.5]
 #ths_ps = [{'t':t,'p':p} for t in [0.6,0.8] for p in [0,17.5,50]]
-ths_ps = [{'t':0.6,'p':0},{'t':0.8,'p':17.5},{'t':0.8,'p':50}]
+ths_ps = [{'t':0.6,'p':0},{'t':0.8,'p':17.5},{'t':0.9,'p':35}]
 conf = [0.5, 0.9, 0.99]
 
 vst = ['V1G', 'V2G']
@@ -242,6 +242,8 @@ plt.legend(loc=(0.72,0.48))
 #%% Remuneration for diffs thresholds, Three plots, one figure
     
 c = ['b', 'r', 'g']
+hatches = ['', "\\\\",'xx']
+
 x = np.arange(0,3)
 a = '17_20'
 fl=31
@@ -252,7 +254,7 @@ th = 0.6
 p=0
 alphas = [1,0.5]
 #ths_ps = [{'t':t,'p':p} for t in [0.6,0.8] for p in [0,17.5,50]]
-ths_ps = [{'t':0.6,'p':0},{'t':0.8,'p':17.5},{'t':0.8,'p':50}]
+ths_ps = [{'t':0.6,'p':0},{'t':0.8,'p':17.5},{'t':0.9,'p':35}]
 conf = [0.5, 0.9, 0.99]
 
 vst = ['V1G', 'V2G']
@@ -293,6 +295,75 @@ ax[0].legend(loc=7)
 ax[l].set_xlabel('Confidence level')   
 f.set_size_inches(8.5,   4*3)
     
+
+#%% Remuneration using box plot
+
+folder = r'C:\Users\u546416\AnacondaProjects\EV-DSO\FlexTenders\EnergyPolicy\raw\\'
+
+c = ['b', 'r', 'g']
+hatches = ['', "\\\\",'xx']
+
+x = np.arange(0,3)
+a = '[17, 20]'
+fl=31
+vxg = ['v1g', 'v2g']
+serv_t = 30
+#f = 71
+#f=500
+th = 0.6
+p=0
+alphas = [1,0.5]
+#ths_ps = [{'t':t,'p':p} for t in [0.6,0.8] for p in [0,17.5,50]]
+ths_ps = [{'t':0.6,'p':0},{'t':0.8,'p':17.5},{'t':0.9,'p':35}]
+conf = [0.5, 0.9, 0.99]
+nscenarios=500
+
+av_w = ['[17, 20]', '[0, 24]']
+
+vst = ['V1G', 'V2G']
+f, ax = plt.subplots(3)
+for l, tp in enumerate(ths_ps):
+    for k, a in enumerate(av_w):    
+        for i, s in enumerate(sets):
+            v1gs = []
+            v2gs = []
+#            print(tp, a, s)
+            for m, cf in enumerate(conf):
+                file = 'fleet' + s + '_avw' + a + '_ev'+ str(fl) + '.0_servt' + str(serv_t) + '_confth' + str(cf) + '_penaltyth' + str(tp['t']) + '.npy'
+                v1gbids, v1gpay, v1gund, v2gbids, v2gpay, v2gund = np.load(folder + file)
+                v1gs.append((v1gpay - v1gbids.repeat(nscenarios) * v1gund * tp['p'])/fl)
+                v2gs.append((v2gpay - v2gbids.repeat(nscenarios) * v2gund * tp['p'])/fl)
+#                print(cf, np.mean((v2gpay - v2gbids.repeat(nscenarios) * v2gund * tp['p'])/fl))    
+            bplot = ax[l].boxplot(v1gs, positions=np.arange(0,3) + 3*i + k*9, patch_artist=True,
+                      widths=0.9, labels=conf)
+            for patch in bplot['boxes']:
+                patch.set_facecolor(c[i])
+                patch.set_hatch(hatches[i])
+                patch.set_edgecolor(c[i])
+            bplot = ax[l].boxplot(v2gs, positions=np.arange(0,3) + 3*i + k*9, patch_artist=True,
+                      widths=0.9, labels=conf)
+            for patch in bplot['boxes']:
+                patch.set_facecolor(c[i])
+                patch.set_edgecolor(c[i])
+                patch.set_alpha(0.5)
+                patch.set_hatch(hatches[i])
+    ax[l].set_xlim(-1,18)
+    ax[l].set_xticks(np.arange(0,3*6))
+    ax[l].set_xticklabels(np.tile(np.array(conf), 6))
+    ax[l].axvline(8.5, color='k', linestyle='--')    
+    ax[l].text(3*6*1/4,350, 'Evening Window', horizontalalignment='center', fontweight='bold')
+    ax[l].text(3*6*3/4,350, 'Full-day Window',horizontalalignment='center', fontweight='bold')
+    ax[l].grid('--', alpha=0.3)
+    ax[l].set_ylabel('th={}%; p={}%\nRemuneration [€/EV]'.format(int(tp['t']*100), int(tp['p']/50*100)), 
+          fontweight='bold')
+        
+ax[0].legend(loc=7)        
+#plt.legend(loc=(0.72,0.48))    
+ax[l].set_xlabel('Confidence level')   
+f.set_size_inches(8.5,   4*3)              
+                    
+
+
 #%% Remuneration with shaded area for diffs fleet sizes
 c = ['royalblue', 'orangered', 'mediumseagreen','navy', 'firebrick', 'g']
 ls=[['--',':','-.'], ['-','-','-']]
