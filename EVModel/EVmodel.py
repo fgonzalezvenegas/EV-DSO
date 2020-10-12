@@ -21,6 +21,7 @@ import datetime as dt
 import util
 import scipy.stats as stats
 import cvxopt
+import time
 
 
 cvxopt.solvers.options['show_progress'] = False
@@ -213,11 +214,12 @@ class Grid:
         # Empty arrays for EVs
         self.ev_sets = []
         self.ev_grid_sets = []
+        self.evs_sets = {}
         self.evs = {}
         print('Grid instantiated')
 
     def add_aggregator(self, nameagg, **agg_data):
-        """ Initiates EVs give by the dict ev_data and other ev global params
+        """ Initiates an Aggregator
         """
         if not hasattr(self, 'aggregators'):
             self.aggregators = []
@@ -251,13 +253,13 @@ class Grid:
         # TODO: improve this
         # Check if schedule is given:
         if not (charge_schedule is None):
-            # If schedule has EV column, create each EV with its own schedule
-            if 'EV' in charge_schedule:
-                users = charge_schedule.EV.unique()
+            # If schedule has 'User' column, create each EV with its own schedule
+            if 'User' in charge_schedule:
+                users = charge_schedule.User.unique()
                 n_evs = len(users)
                 for i in users:
-                    evset.append(ev_fx(self, name=nameset+str(i), boss=aggregator, 
-                                       charge_schedule=charge_schedule[charge_schedule.EV==i].reset_index(drop=True),
+                    evset.append(ev_fx(self, name=str(i), boss=aggregator, 
+                                       charge_schedule=charge_schedule[charge_schedule.User==i].reset_index(drop=True),
                                        **ev_params))
             # else, all EVs with same schedule
             else:
@@ -281,9 +283,11 @@ class Grid:
             self.ev_agg_sets.append(nameset)
             aggregator.evs += evset
             aggregator.nevs += n_evs
-        self.evs[nameset] = evset
+        self.evs_sets[nameset] = evset
+        for ev in evset:
+            self.evs[ev.name] = ev
         self.init_ev_vectors(nameset)
-        return self.evs[nameset]
+        return self.evs_sets[nameset]
                 
     def init_load_vector(self, load):
         """ Creates empty array for global variables"""
@@ -321,7 +325,7 @@ class Grid:
         """
         available_buses = [buses[i] for i in range(len(buses)) for j in range(ev_per_bus[i])]
         np.random.shuffle(available_buses)
-        ev = self.evs[evtype]
+        ev = self.evs_sets[evtype]
         if len(ev) > len(available_buses):
             strg = ('Not sufficient slots in buses for the number of EVs\n'+
                 '# slots {}, # EVs {}'.format(len(available_buses), len(ev)))
@@ -384,11 +388,28 @@ class Grid:
             prices = np.tile(prices, int(np.ceil(ntimes)))
         self.prices = np.repeat(prices, nps)[:self.periods]
         
+    def add_evparam_from_dataframe(self, param, df):
+        """ Add params to EVs from pd.DataFrame.
+        df.columns are ev.names
+        """
+        for c in df:
+            if c in self.evs:
+                setattr(self.evs[c], param, df[c].values)
+                
+    def add_evparam_from_dict(self, param, dic):
+        """ Add params to EVs from dict.
+        dict.keys are ev.names
+        
+        """
+        for c in dic:
+            if c in self.evs:
+                setattr(self.evs[c], param, dic[c])
+    
     def new_day(self):
         """ Iterates over evs to compute new day 
         """
         for types in self.ev_grid_sets:
-            for ev in self.evs[types]:
+            for ev in self.evs_sets[types]:
                 ev.new_day(self)
         if hasattr(self, 'aggregators'):
             for agg in self.aggregators:
@@ -399,7 +420,7 @@ class Grid:
         """
         load_ev = {}
         for types in self.ev_sets:
-            for ev in self.evs[types]:
+            for ev in self.evs_sets[types]:
                 if (types, ev.bus) in load_ev:
                     load_ev[types, ev.bus] += ev.charging * 1
                 else:
@@ -413,7 +434,7 @@ class Grid:
         if self.verbose:
             print('Grid {}: Computing aggregated data'.format(self.name))
         for types in self.ev_sets:
-            for ev in self.evs[types]:
+            for ev in self.evs_sets[types]:
                 self.ev_potential[types] += ev.potential / util.k
                 self.ev_load[types] += ev.charging / util.k
                 self.ev_off_peak_potential[types] += ev.off_peak_potential / util.k
@@ -421,24 +442,32 @@ class Grid:
                 self.ev_dn_flex[types] += ev.dn_flex / util.k
                 self.ev_mean_flex[types] += ev.mean_flex_traj / util.k
                 self.ev_batt[types] += ev.soc * ev.batt_size / util.k
-        self.ev_potential[total] = sum([self.ev_potential[types] for types in self.evs])
-        self.ev_load[total] = sum([self.ev_load[types] for types in self.evs])
-        self.ev_off_peak_potential[total] = sum([self.ev_off_peak_potential[types] for types in self.evs])
-        self.ev_up_flex[total] = sum([self.ev_up_flex[types] for types in self.evs])
-        self.ev_dn_flex[total] = sum([self.ev_dn_flex[types] for types in self.evs])
-        self.ev_mean_flex[total] = sum([self.ev_mean_flex[types] for types in self.evs])
-        self.ev_batt[total] = sum([self.ev_batt[types] for types in self.evs])
+        self.ev_potential[total] = sum([self.ev_potential[types] for types in self.evs_sets])
+        self.ev_load[total] = sum([self.ev_load[types] for types in self.evs_sets])
+        self.ev_off_peak_potential[total] = sum([self.ev_off_peak_potential[types] for types in self.evs_sets])
+        self.ev_up_flex[total] = sum([self.ev_up_flex[types] for types in self.evs_sets])
+        self.ev_dn_flex[total] = sum([self.ev_dn_flex[types] for types in self.evs_sets])
+        self.ev_mean_flex[total] = sum([self.ev_mean_flex[types] for types in self.evs_sets])
+        self.ev_batt[total] = sum([self.ev_batt[types] for types in self.evs_sets])
         
     def do_days(self, agg_data=True):
         """Iterates over days to compute charging 
         """
+        if self.verbose:
+            t = time.time()
+            print('Starting simulation, Grid {}'.format(self.name))
+            k = -1
         for d in range(self.ndays):
             if self.verbose:
-                print('Grid {}: Computing day {}'.format(self.name, self.day))
+                if (d*20)// self.ndays > k:
+                    k = (d*20)// self.ndays
+                    print('\tComputing day {}'.format(self.day))
             self.new_day()
             self.day += 1
         if agg_data:
             self.compute_agg_data()
+        if self.verbose:
+            print('Finished simulation, Grid {}\nElapsed time {}h {:02d}:{:04.01f}'.format(self.name, *util.sec_to_time(time.time()-t)))
         
     def set_aspect_plot(self, ax, day_ini=0, days=-1, **plot_params):
         """ Set the aspect of the plot to fit in the specified timeframe and adds Week names as ticks
@@ -555,23 +584,23 @@ class Grid:
     def get_ev_data(self):
         """ EV charge data per subset
         """
-        types = [t for t in self.evs]
+        types = [t for t in self.evs_sets]
         charge = [self.ev_load[t].sum() * self.period_dur 
                   for t in types]
-        nevs = [len(self.evs[t])
+        nevs = [len(self.evs_sets[t])
                 for t in types]
         extra_charge = [sum(ev.extra_energy.sum()
-                            for ev in self.evs[t]) / util.k
+                            for ev in self.evs_sets[t]) / util.k
                         for t in types]
         flex_ratio = [1 - self.ev_load[t].sum() / self.ev_off_peak_potential[t].sum() 
                     for t in types]
         max_load = [self.ev_load[t].max() 
                     for t in types]
         avg_d = [np.mean([ev.dist_wd 
-                         for ev in self.evs[t]])
+                         for ev in self.evs_sets[t]])
                 for t in types]
         avg_plugin = [np.mean([ev.ch_status.sum() 
-                         for ev in self.evs[t]]) / self.ndays
+                         for ev in self.evs_sets[t]]) / self.ndays
                 for t in types]
         return dict(EV_sets = types,
                     N_EVs = nevs,
@@ -583,54 +612,57 @@ class Grid:
                     Avg_plug_in_ratio= avg_plugin)
         
         
-    def do_dist_hist(self, weekday=True, **plot_params):
-        """ Do histogram of distances
+    def hist_dist(self, weekday=True, **plot_params):
+        """ Do histogram of distances (weekday)
         """
         if not 'ax' in plot_params:
             f, ax = plt.subplots(1,1)
         else:
             ax = plot_params['ax']
-        d = np.asarray([(ev.dist_wd if weekday else ev.dist_we) for types in self.evs
-                                for ev in self.evs[types]])
-        avg= np.mean(d)
-        ax.hist(d, bins=np.arange(0,100,2))
-        ax.axvline(avg, 'r')
-        ax.text(x=avg+1, y=max(d)*0.75, s='Average one-way trip distance {} km'.format(np.round(avg,decimals=1)))
+        d = np.array([ev.dist_wd if weekday else ev.dist_we 
+                                 for types in self.evs_sets
+                                 for ev in self.evs_sets[types]])
+        avg = d.mean()
+        h, _, _ = ax.hist(d, bins=np.arange(0,100,2), **plot_params)
+        ax.axvline(avg, color='r', linestyle='--')
+        ax.text(x=avg+1, y=h.max()*0.75, s='Average one-way trip distance {} km'.format(np.round(avg,decimals=1)))
         ax.set_xlim([0,100])
         ax.set_title('Histogram of trip distances')
         ax.set_xlabel('km')
         ax.set_ylabel('Frequency')
     
     
-    def do_ncharging_hist(self, **plot_params):
+    def hist_ncharging(self, **plot_params):
         """ Do histogram of number of charging sessions
         """
         if not 'ax' in plot_params:
             f, ax = plt.subplots(1,1)
         else:
             ax = plot_params['ax']
-        d = np.asarray([ev.ch_status.sum() for types in self.evs
-                                for ev in self.evs[types]])
-        ax.hist(d, bins=np.arange(0, self.ndays + 2, 1))
-        ax.set_xlim([0, self.ndays+1])
-        if not 'title' in plot_params:
-            ax.set_title('Histogram of charging sessions')
-        else:
-            ax.set_title(plot_params['title'])
-        ax.set_xlabel('# charging sessions')
+        d = np.array([ev.n_plugs for ev in self.get_evs()])/(self.ndays/7)
+        avg = d.mean()
+        bins = np.arange(0, 9, 1)
+        bins[-1] = 10
+        h, _, _ = ax.hist(d, bins=bins, **plot_params)
+        ax.set_xlim([0, 8])
+        ax.axvline(avg, color='r', linestyle='--')
+        ax.text(x=avg+1, y=h.max()*0.75, s='Average charging sessions per week: {}'.format(np.round(avg,decimals=1)))
+        ax.set_title('Histogram of charging sessions per week')
+        ax.set_xlabel('# charging sessions per week')
         ax.set_ylabel('Frequency')
+        ax.set_xticklabels([str(i) for i in range(8)] + ['$\infty$'] )
     
     def get_ev(self):
         """ Returns random ev
         """
-        return np.random.choice(self.evs[np.random.choice([key for key in self.evs])])
+        return np.random.choice(list(self.evs.values()))
     
     def get_evs(self, key=None):
         """ Returns list of evs
         """
-        if key in self.evs:
-            return self.evs[key]
-        return [ev for key in self.evs for ev in self.evs[key]]
+        if key in self.evs_sets:
+            return self.evs_sets[key]
+        return list(self.evs.values())
     
     def export_ev_data(self, atts=''):
         """ returns a dict with ev data
@@ -678,10 +710,10 @@ class Grid:
         """
         self.day = 0
         self.init_load_vector(self.base_load)
-        for types in self.evs:
+        for types in self.evs_sets:
             self.init_ev_vectors(types)
-            for ev in self.evs[types]:
-                ev.reset(self)
+        for ev in self.evs.values():
+            ev.reset(self)
     
     def set_evs_param(self, param, value, sets='all'):
         if sets == 'all':
@@ -718,15 +750,15 @@ class EV:
                  range_anx_factor=1.5,
                  n_if_needed=0,
                  extra_trip_proba=0,
-                 arrival_departure_data_wd = dict(),
-                 arrival_departure_data_we = dict(mu_arr=16, mu_dep=8,
-                                                  std_arr=2, std_dep=2),
-                 charge_schedule = None,
+                 arrival_departure_data_wd=dict(),
+                 arrival_departure_data_we=dict(mu_arr=16, mu_dep=8,
+                                                std_arr=2, std_dep=2),
+                 charge_schedule=None,
                  bus='',
                  target_soc=1,
                  ovn=True,
                  flex_time=0,
-                 VCC=False,
+                 vcc=None,
                  boss=None,
                  **kwargs):
         """Instantiates EV object:
@@ -791,7 +823,7 @@ class EV:
             self.ovn = ovn                                  # Overnight charging Bool
             self.charge_schedule = None
         else:
-            cols = ['ArrTime', 'ArrDay', 'DepTime', 'DepDay', 'TripDist']
+            cols = ['ArrTime', 'ArrDay', 'DepTime', 'DepDay', 'TripDistance']
             for c in cols:
                 if not (c in charge_schedule):
                     raise ValueError('Charge schedule should have the following columns: {}'.format(cols))
@@ -808,6 +840,13 @@ class EV:
                                      'multiple of model.step [{} minutes]'.format(flex_time, model.step))
         self.flex_time = flex_time                  # array of Time (minutes) for which the flex needs to be delivered
         
+        # Variable capacity contract/limit. It's either a np.array of length>= model.periods
+        # or a constant value
+        if type(vcc) in (float, int):
+            self.vcc = vcc * np.ones(model.periods)
+        else:
+            self.vcc = vcc
+            
         # DERIVED PARAMS
         self.compute_derived_params(model)
         # Correct target SOC to minimum charged energy
@@ -829,10 +868,11 @@ class EV:
         self.charged_energy = np.zeros(model.ndays) # charged energy into the battery [kWh]
         self.extra_energy = np.zeros(model.ndays)   # extra charge needed during the day (bcs too long trips, not enough batt!) [kWh]
         self.ch_status = np.zeros(model.ndays)      # Charging status for each day (connected or not connected)
-
+        self.n_plugs = 0
+        
         self.set_ch_vector(model)
         self.set_off_peak(model)
-    
+        
     def compute_derived_params(self, model):    
         """ Computes derived params that are useful
         """
@@ -876,13 +916,13 @@ class EV:
         
     def set_ch_vector(self, model):
         # Grid view
-        self.charging = np.zeros(model.periods)             # Charging power at time t 
-        self.off_peak_potential = np.zeros(model.periods)   # Connected and chargeable power (only off-peak period)
-        self.potential = np.zeros(model.periods)            # Connected power at time t
-        self.up_flex = np.zeros(model.periods)              # Battery flex capacity, upper bound
-        self.dn_flex = np.zeros(model.periods)              # Battery flex capacity, lower bound (assumes bidir charger)
-        self.mean_flex_traj = np.zeros(model.periods)       # Mean trajectory to be used to compute up & dn flex
-        self.soc = np.zeros(model.periods)                  # SOC at time t
+        self.charging = np.zeros(model.periods)             # Charging power at time t  [kW]
+        self.off_peak_potential = np.zeros(model.periods)   # Connected and chargeable power (only off-peak period and considering VCC) [kW]
+        self.potential = np.zeros(model.periods)            # Connected power at time t [kW]
+        self.up_flex = np.zeros(model.periods)              # Battery flex capacity, upper bound [kWh]
+        self.dn_flex = np.zeros(model.periods)              # Battery flex capacity, lower bound (assumes bidir charger) [kWh]
+        self.mean_flex_traj = np.zeros(model.periods)       # Mean trajectory to be used to compute up & dn flex [soc?]
+        self.soc = np.zeros(model.periods)                  # SOC at time t [pu]
         if self.flex_time:                                 # kW of flexibility for self.flex_time minutes, for diffs baselines
             self.up_flex_kw = np.zeros([len(self.flex_time), model.periods])
             self.dn_flex_kw = np.zeros([len(self.flex_time), model.periods])
@@ -1052,11 +1092,13 @@ class EV:
                  model.period_dur * self.charging_power)
         
         # Check for aggregators limit
-        if self.boss != None:
+        if not (self.boss is None):
             if self.boss.param_update in ['capacity', 'all']:
-                # TODO: this potential is in PU, not in kW
                 potential = np.min([potential, self.boss.available_capacity[idx_tini:idx_tend+1]], axis=0)
-        
+        # Check for own variable capacity limit
+        if not (self.vcc is None):
+            potential = np.min([potential, self.vcc[idx_tini:idx_tend+1]], axis=0)
+            
         # Save in potential and off peak vectors
         self.potential[idx_tini:idx_tend+1] = potential
         self.off_peak_potential[idx_tini:idx_tend+1] = (
@@ -1179,6 +1221,7 @@ class EV:
         # Defines if charging is needed
         self.ch_status[model.day] = self.define_charging_status(model)
         if self.ch_status[model.day]:
+            self.n_plugs += 1
             idxs = self.do_charging(model)
         else:
             self.compute_soc_end(model)
@@ -1200,22 +1243,23 @@ class EV:
             self.departure = s.DepTime
             self.dt = s.DepTime - s.ArrTime + 24 * (s.DepDay - s.ArrDay)
             # set Energy of trip:
-            self.energy_trip[model.day] += min(self.batt_size, s.TripDist * self.driving_eff)
-            self.extra_energy[model.day] += max(s.TripDist * self.driving_eff - self.batt_size, 0)
+            self.energy_trip[model.day] += min(self.batt_size, s.TripDistance * self.driving_eff)
+            self.extra_energy[model.day] += max(s.TripDistance * self.driving_eff - self.batt_size, 0)
             # compute soc ini:
             if n == 0:
                 self.compute_soc_ini(model)
             else:
-                self.soc_ini[model.day] = max(self.soc_end[model.day] - (s.TripDist * self.driving_eff / self.batt_size),0)
+                self.soc_ini[model.day] = max(self.soc_end[model.day] - (s.TripDistance * self.driving_eff / self.batt_size),0)
             # def charging status, next trip distance is known from schedule
             try:
-                next_trip_energy = self.charge_schedule.TripDist[i+1]*self.driving_eff
+                next_trip_energy = self.charge_schedule.TripDistance[i+1]*self.driving_eff
             except:
-                next_trip_energy = self.charge_schedule.TripDist[i]*self.driving_eff
+                next_trip_energy = self.charge_schedule.TripDistance[i]*self.driving_eff
             self.ch_status[model.day] = self.define_charging_status(model, 
                                         next_trip_energy=next_trip_energy)
             # do charging (or not)
             if self.ch_status[model.day]:
+                self.n_plugs += 1
                 ixs = self.do_charging(model)
                 # Updating indexes to consider
                 if idxs == [0,0]:
@@ -1238,6 +1282,7 @@ class EV:
         self.charged_energy = self.charged_energy * 0   # charged energy into the battery
         self.extra_energy = self.extra_energy * 0       # extra charge needed during the day (bcs too long trips, not enough batt!)
         self.ch_status = self.ch_status * 0             # Charging status for each day (connected or not connected)
+        self.n_plugs = 0
 
         self.set_ch_vector(model)
         self.set_off_peak(model)
