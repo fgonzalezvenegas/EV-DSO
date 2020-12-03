@@ -1,15 +1,27 @@
-20# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Created on Wed Mar  6 13:07:14 2019
 
 EV Model:
-    Creates Class GRID and Class EV
+    Creates Class GRID and EV classes
         
     GRID Class:
         A Set of EVs exists
         computes and plots general data
     EV Class:
-        A single EV with its behaviour:
+        A single EV with base commands that simulate distances driven per day and charging sessions.
+        Considers a non-systematic plug in behavior
+        Default charging mode is uncontrolled (starts as soon as possible)
+    EV modulated class:
+        Extension of EV class.
+        Charging mode is modulated (charging at minimum power during the whole charging session)
+    EV randstart:
+        Extension of EV class.
+        Charging mode is similar to base EV, but start of charging is random during the charging session
+    EV Dumb reverse:
+        Extension of EV class
+        Charging mode 
+        
             
 
 @author: U546416
@@ -18,7 +30,6 @@ import numpy as np
 from matplotlib import pyplot as plt
 import pandas as pd
 import datetime as dt
-import util
 import scipy.stats as stats
 import cvxopt
 import time
@@ -31,6 +42,12 @@ dist_function[10:15] = [0, 0, 0 , 0 , 0]
 pdfunc = (dist_function/sum(dist_function)).cumsum()
 
 bins_hours = np.linspace(0,24,num=25)
+dsnms = ['Mon', 'Tues', 'Wed', 'Thur', 'Fri', 'Sat', 'Sun']
+
+def sec_to_time(s):
+    """ Returns the hours, minutes and seconds of a given time in secs
+    """
+    return (int(s//3600), int((s//60)%60), (s%60))
 
 def random_from_cdf(cdf, bins):
     """Returns a random bin value given a cdf.
@@ -87,82 +104,6 @@ def set_dist(data_dist):
         while d > 120:
             d = stats.lognorm.rvs(s, loc, scale, 1)
         return d        
-
-#def load_conso_ss_data(folder = 'c:/user/U546416/Documents/PhD/Data/Mobilité/',
-#                       folder_load = 'Data_Traitee/Conso/',
-#                       folder_grid = 'Data_Traitee/Reseau/',
-#                       file_load_comm = 'consommation-electrique-par-secteur-dactivite-commune-red.csv',
-#                       file_load_profile = 'conso_all_pu.csv',
-#                       file_ss = 'postes_source.csv'):
-#    """ load data for conso and substations
-#    """ 
-#    # Load load by commune data
-#    load_by_comm = pd.read_csv(folder + folder_load + file_load_comm, 
-#                               engine='python', delimiter=';', index_col=0)
-#    load_by_comm.index = load_by_comm.index.astype(str)
-#    load_by_comm.index = load_by_comm.index.map(lambda x: x if len(x) == 5 else '0' + x)
-#    # Load load profiles data (in pu (power, not energy))
-#    load_profiles = pd.read_csv(folder + folder_load + file_load_profile, 
-#                               engine='python', delimiter=',', index_col=0)
-#    # drop ENT profile that's not useful
-#    load_profiles = load_profiles.drop('ENT', axis=1)
-#    # Load Trafo data
-#    SS = pd.read_csv(folder + folder_grid + file_ss, 
-#                               engine='python', delimiter=',', index_col=0)
-#    return load_by_comm, load_profiles, SS
-
-
-#def load_hist_data(folder=r'c:/user/U546416/Documents/PhD/Data/Mobilité/', 
-#                   folder_hist='',
-#                   file_hist_home='HistHome.csv',
-#                   file_hist_work='HistWork.csv'):
-#    """ load histogram data for conso and substations
-#    """
-#    
-#    hist_home = pd.read_csv(folder + folder_hist+ file_hist_home, 
-#                               engine='python', delimiter=',', index_col=0)
-#    hist_work = pd.read_csv(folder + folder_hist+ file_hist_work, 
-#                               engine='python', delimiter=',', index_col=0)
-#    return hist_home, hist_work
-
-
-#def extract_hist(hist, comms):
-#    """ returns histograms for communes
-#    """
-#    labels = ['UU', 'ZE', 'Status', 'Dep']
-#    cols_h = hist.columns.drop(labels)
-#    return pd.DataFrame({c: np.asarray(hist.loc[c,cols_h]) for c in comms}).transpose()
-    
-
-#def compute_load_from_ss(load_by_comm, load_profiles, SS, ss):
-#    """Returns the load profile for the substation ss, 
-#    where Substation data is stored in SS DataFrame (namely communes assigned) 
-#    and load data in load_profiles and load_by_comm
-#    """
-#    if not ss in SS.Communes:
-#        raise ValueError('Invalid Substation %s' %ss)
-#    comms = SS.Communes[ss]
-#    try: 
-#        factors = load_by_comm.loc[comms, load_profiles.columns].sum() / (8760)
-#    except:
-#        factors = pd.DataFrame({key: 0 for key in load_profiles.columns})
-#    return load_profiles * factors
-
-
-#def get_max_load_week(load, step=30, buffer_before=0, buffer_after=0):
-#    """ Returns the week of max load. It adds Xi buffer days before and after
-#    """
-#    if type(load.index[0]) == str:
-#        fmtdt = '%Y-%m-%d %H:%M:%S%z'
-#        #parse!
-#        load.index = load.index.map(lambda x: dt.datetime.strptime(''.join(x.rsplit(':',1)), fmtdt))
-#    idmax = load.idxmax()
-#    dwmax = idmax.weekday()
-#    dini = idmax - dt.timedelta(days=dwmax+buffer_before, hours=idmax.hour, minutes=idmax.minute)
-#    dend = dini + dt.timedelta(days=7+buffer_after+buffer_before) #- dt.timedelta(minutes=30)
-#    return load.loc[dini:dend]
-
-
     
 class Grid:
     def __init__(self, 
@@ -395,6 +336,10 @@ class Grid:
         for c in df:
             if c in self.evs:
                 setattr(self.evs[c], param, df[c].values)
+                if param in ['charging_eff', 'batt_size', 'discharging_eff']:
+                    self.evs[c].compute_derived_params(self)
+                if param in ['tou_ini', 'tou_end', 'tou_we']:
+                    self.evs[c].set_off_peak(self)
                 
     def add_evparam_from_dict(self, param, dic):
         """ Add params to EVs from dict.
@@ -404,6 +349,10 @@ class Grid:
         for c in dic:
             if c in self.evs:
                 setattr(self.evs[c], param, dic[c])
+                if param in ['charging_eff', 'batt_size', 'discharging_eff']:
+                    self.evs[c].compute_derived_params(self)
+                if param in ['tou_ini', 'tou_end', 'tou_we', 'tou_ini_we', 'tou_end_we']:
+                    self.evs[c].set_off_peak(self)
     
     def new_day(self):
         """ Iterates over evs to compute new day 
@@ -435,13 +384,13 @@ class Grid:
             print('Grid {}: Computing aggregated data'.format(self.name))
         for types in self.ev_sets:
             for ev in self.evs_sets[types]:
-                self.ev_potential[types] += ev.potential / util.k
-                self.ev_load[types] += ev.charging / util.k
-                self.ev_off_peak_potential[types] += ev.off_peak_potential / util.k
-                self.ev_up_flex[types] += ev.up_flex / util.k
-                self.ev_dn_flex[types] += ev.dn_flex / util.k
-                self.ev_mean_flex[types] += ev.mean_flex_traj / util.k
-                self.ev_batt[types] += ev.soc * ev.batt_size / util.k
+                self.ev_potential[types] += ev.potential / 1000
+                self.ev_load[types] += ev.charging / 1000
+                self.ev_off_peak_potential[types] += ev.off_peak_potential / 1000
+                self.ev_up_flex[types] += ev.up_flex / 1000
+                self.ev_dn_flex[types] += ev.dn_flex / 1000
+                self.ev_mean_flex[types] += ev.mean_flex_traj / 1000
+                self.ev_batt[types] += ev.soc * ev.batt_size / 1000
         self.ev_potential[total] = sum([self.ev_potential[types] for types in self.evs_sets])
         self.ev_load[total] = sum([self.ev_load[types] for types in self.evs_sets])
         self.ev_off_peak_potential[total] = sum([self.ev_off_peak_potential[types] for types in self.evs_sets])
@@ -467,7 +416,7 @@ class Grid:
         if agg_data:
             self.compute_agg_data()
         if self.verbose:
-            print('Finished simulation, Grid {}\nElapsed time {}h {:02d}:{:04.01f}'.format(self.name, *util.sec_to_time(time.time()-t)))
+            print('Finished simulation, Grid {}\nElapsed time {}h {:02d}:{:04.01f}'.format(self.name, *sec_to_time(time.time()-t)))
         
     def set_aspect_plot(self, ax, day_ini=0, days=-1, **plot_params):
         """ Set the aspect of the plot to fit in the specified timeframe and adds Week names as ticks
@@ -480,7 +429,7 @@ class Grid:
         t0 = self.periods_day * day_ini
         tf = self.periods_day * (days + day_ini)
         
-        daylbl = [util.dsnms[self.times[i][2]] for i in np.arange(t0, tf, self.periods_day)]
+        daylbl = [dsnms[self.times[i][2]] for i in np.arange(t0, tf, self.periods_day)]
         
         ax.set_xlabel('Time [days]')
         if 'title' in plot_params:
@@ -563,7 +512,7 @@ class Grid:
         total_ev_charge = self.ev_load[total].sum() * self.period_dur #MWh
         flex_pot = self.ev_off_peak_potential[total].sum() * self.period_dur
         extra_charge = sum(ev.extra_energy.sum()
-                            for ev in self.get_evs()) / util.k
+                            for ev in self.get_evs()) / 1000
         ev_flex_ratio = 1-total_ev_charge / flex_pot
         max_ev_load = self.ev_load[total].max()
         max_load = (self.ev_load[total] + self.base_load).max()
@@ -590,7 +539,7 @@ class Grid:
         nevs = [len(self.evs_sets[t])
                 for t in types]
         extra_charge = [sum(ev.extra_energy.sum()
-                            for ev in self.evs_sets[t]) / util.k
+                            for ev in self.evs_sets[t]) / 1000
                         for t in types]
         flex_ratio = [1 - self.ev_load[t].sum() / self.ev_off_peak_potential[t].sum() 
                     for t in types]
@@ -599,9 +548,9 @@ class Grid:
         avg_d = [np.mean([ev.dist_wd 
                          for ev in self.evs_sets[t]])
                 for t in types]
-        avg_plugin = [np.mean([ev.ch_status.sum() 
+        avg_plugin = [np.mean([ev.n_plugs
                          for ev in self.evs_sets[t]]) / self.ndays
-                for t in types]
+                     for t in types]
         return dict(EV_sets = types,
                     N_EVs = nevs,
                     EV_charge_MWh = charge,
@@ -734,6 +683,7 @@ class EV:
     def __init__(self, model, name, 
                  dist_wd=None,
                  dist_we=None,
+                 new_dist=False,
                  var_dist_wd=0,
                  var_dist_we=0,
                  charging_power=3.6, 
@@ -779,6 +729,10 @@ class EV:
         self.dist_we = set_dist(dist_we) 
         self.var_dist_wd = var_dist_wd
         self.var_dist_we = var_dist_we
+        self.new_dist = new_dist
+        if new_dist:            
+            self.dist_wd_data = dist_wd
+            self.dist_we_data = dist_we
         # Discrete random distribution (non correlated) for battery & charging power
         if type(charging_power) is int or type(charging_power) is float:
             self.charging_power = charging_power
@@ -1011,9 +965,9 @@ class EV:
             self.soc_ini[model.day] = 1 - self.energy_trip[model.day] / self.batt_size
         else:
             self.soc_ini[model.day] = self.soc_end[model.day-1] - self.energy_trip[model.day] / self.batt_size
-        if self.soc_ini[model.day] < 0.05:                          # To correct some negative SOCs
-            self.extra_energy[model.day] += (0.05 - self.soc_ini[model.day]) * self.batt_size
-            self.soc_ini[model.day] = 0.05
+        if self.soc_ini[model.day] < 0:                          # To correct some negative SOCs
+            self.extra_energy[model.day] += -self.soc_ini[model.day] * self.batt_size
+            self.soc_ini[model.day] = 0
             
     def define_charging_status(self, model, next_trip_energy=None):
         """ Defines charging status for the session. 
@@ -1135,7 +1089,7 @@ class EV:
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
         
         # charged_energy
-        self.charged_energy[model.day] = (soc[-1]-self.soc_ini[model.day]) * self.batt_size
+        self.charged_energy[model.day] += (soc[-1]-self.soc_ini[model.day]) * self.batt_size
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
     
@@ -1207,15 +1161,21 @@ class EV:
             
     def new_day(self, model, get_idxs=False):
         # Update for a new day:
-        # Compute arrivals and departures
+        # If you have an schedule, use schedule
         if not (self.charge_schedule is None):
            idxs = self.scheduled(model, get_idxs=True)
            return idxs
+        # Compute arrivals and departures
         if model.days[model.day] in model.weekends:
                 self.set_arrival_departure(**self.arrival_departure_data_we)                    
         else:
             self.set_arrival_departure(**self.arrival_departure_data_wd)
         # Computes initial soc based on effected trips
+        if self.new_dist:
+            if model.day in model.weekends:
+                self.dist_we = set_dist(self.dist_we_data)
+            else:
+                self.dist_wd = set_dist(self.dist_wd_data)
         self.compute_energy_trip(model)
         self.compute_soc_ini(model)
         # Defines if charging is needed
@@ -1250,10 +1210,12 @@ class EV:
                 self.compute_soc_ini(model)
             else:
                 self.soc_ini[model.day] = max(self.soc_end[model.day] - (s.TripDistance * self.driving_eff / self.batt_size),0)
+                #update extra_energy
+                self.extra_energy[model.day] += max(s.TripDistance * self.driving_eff - self.soc_ini[model.day] * self.batt_size,0) 
             # def charging status, next trip distance is known from schedule
             try:
                 next_trip_energy = self.charge_schedule.TripDistance[i+1]*self.driving_eff
-            except:
+            except: # exception is when you reach the last schedule item
                 next_trip_energy = self.charge_schedule.TripDistance[i]*self.driving_eff
             self.ch_status[model.day] = self.define_charging_status(model, 
                                         next_trip_energy=next_trip_energy)
@@ -1267,12 +1229,13 @@ class EV:
                 else:
                     idxs[1] = ixs[1]
             else:
+                # not charging
                 self.compute_soc_end(model)
             # next session
             n += 1
-            # Correcting End soc for sessions lasting multiple days (same soc end for those days)
-            if s.DepDay > s.ArrDay+1:
-                self.soc_end[model.day:s.DepDay-1] = self.soc_end[model.day]
+#            # Correcting End soc for sessions lasting multiple days (same soc end for those days)
+#            if s.DepDay > s.ArrDay+1:
+#                self.soc_end[model.day:s.DepDay-1] = self.soc_end[model.day]
         return idxs
         
     def reset(self, model):
@@ -1317,7 +1280,7 @@ class EV_Modulated(EV):
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
         
         # charged_energy
-        self.charged_energy[model.day] = (soc[-1]-self.soc_ini[model.day]) * self.batt_size
+        self.charged_energy[model.day] += (soc[-1]-self.soc_ini[model.day]) * self.batt_size
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
         
@@ -1358,7 +1321,7 @@ class EV_RandStart(EV):
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
         
         # chssarged_energy
-        self.charged_energy[model.day] = (soc[-1]-self.soc_ini[model.day]) * self.batt_size
+        self.charged_energy[model.day] += (soc[-1]-self.soc_ini[model.day]) * self.batt_size
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
         
@@ -1393,7 +1356,7 @@ class EV_DumbReverse(EV):
         power = (soc - np.concatenate([[self.soc_ini[model.day]], soc[:-1]])) / self.soc_eff_per_period 
         
         # charged_energy
-        self.charged_energy[model.day] = (soc[-1]-self.soc_ini[model.day]) * self.batt_size
+        self.charged_energy[model.day] += (soc[-1]-self.soc_ini[model.day]) * self.batt_size
         self.soc[idx_tini:idx_tend+1] = soc
         self.charging[idx_tini:idx_tend+1] = power
         
