@@ -80,11 +80,15 @@ def get_ev_profs(grid, nameset='all', ovn=True, av_days='wd', step=5):
     if nameset=='all':
         evs = grid.get_evs()
     else:
-        evs = grid.evs[nameset]
+        evs = grid.evs_sets[nameset]
     ch_profs = np.array([ev.charging for ev in evs])
     
     # Possible kWs that could be proposed to DSO, for a flex service (not yet taking into account baselines)
-    dn_profs = np.array([ev.dn_flex_kw for ev in evs])
+    try:
+        dn_profs = np.array([ev.dn_flex_kw for ev in evs])
+    except:
+        dn_profs = None
+        dn_profs_multi=None
 #    elif baseline in ['delayed', 'del', 'd']:
 #        dn_profs =  np.array([ev.dn_flex_kw_delayed for ev in evs])
 #    elif baseline in ['meantraj', 'mean', 'm', 'mean_trajectory', 'mt']:
@@ -106,16 +110,19 @@ def get_ev_profs(grid, nameset='all', ovn=True, av_days='wd', step=5):
     
     # Drop buffer days and weekends (if needed)    
     # Possible kWs profiles that could be proposed to DSO, split by days. An array of shape (nevs, ndays, nsteps (per day)) 
-    if dn_profs.ndim == 3:
-        dn_profs_multi = {}
-        for i in range(dn_profs.shape[1]):
-            dn_profs_multi[i] = split_by_days(drop_days(dn_profs[:,i,:], days_before=7, 
+    if dn_profs is None:
+        pass
+    else:
+        if dn_profs.ndim == 3:
+            dn_profs_multi = {}
+            for i in range(dn_profs.shape[1]):
+                dn_profs_multi[i] = split_by_days(drop_days(dn_profs[:,i,:], days_before=7, 
+                                                 days_after=days_after, step=step, 
+                                                 drop_we=drop_we, shift=shift), step=step)
+        else:
+            dn_profs_multi = split_by_days(drop_days(dn_profs, days_before=7, 
                                              days_after=days_after, step=step, 
                                              drop_we=drop_we, shift=shift), step=step)
-    else:
-        dn_profs_multi = split_by_days(drop_days(dn_profs, days_before=7, 
-                                         days_after=days_after, step=step, 
-                                         drop_we=drop_we, shift=shift), step=step)
      
     ch_profs = split_by_days(drop_days(ch_profs, days_before=7,
                                        days_after=days_after, step=step, 
@@ -126,21 +133,27 @@ def get_fleet_profs(ch_profs, dn_profs, nevs_fleet, nfleets=1000):
     (n_evs, ndays, nsteps) = ch_profs.shape
     
     # Compute aggregated profiles for EV fleets
-    nint = np.random.randint(0,n_evs,size=(nfleets, nevs_fleet)) # Fleets, based on combinations of EV indexes
+    nint = np.array([np.random.choice(range(n_evs),size=nevs_fleet, replace=False)
+                    for i in range(nfleets)]) # Fleets, based on combinations of EV indexes
     
     fleet_ch_profs = np.zeros((nfleets, ndays, nsteps))
     if type(dn_profs) == dict:
         fleet_dn = {k : np.zeros((nfleets, ndays, nsteps)) 
                     for k in dn_profs.keys()}
+    else:
+        fleet_dn = []    
     for i in range(nfleets):
 #     up & dn profiles
         for j in range(nevs_fleet):
             fleet_ch_profs[i] += ch_profs[nint[i,j]]
-            if type(dn_profs) == dict:
-                for k in dn_profs.keys():
-                    fleet_dn[k][i] += dn_profs[k][nint[i,j]]
+            if dn_profs is None:
+                pass
             else:
-                fleet_dn[i] += dn_profs[nint[i,j]]
+                if type(dn_profs) == dict:
+                    for k in dn_profs.keys():
+                        fleet_dn[k][i] += dn_profs[k][nint[i,j]]
+                else:
+                    fleet_dn[i] += dn_profs[nint[i,j]]
                     
 #    else:
 #        fleet_dn = np.array([dn_profs[nint[i]].sum(axis=0) for i in range(nfleets)])
@@ -260,4 +273,6 @@ def get_av_window_matrix(av_window_vector, nfleets, ndays):
 
 
 def get_stats(data, percentile=90):
-    return np.mean(data), np.min(data), np.max(data), np.percentile(data, percentile), np.percentile(data, 100-percentile)
+    return (np.mean(data), np.min(data), np.max(data),
+            np.percentile(data, percentile), np.percentile(data, 100-percentile), 
+            np.sort(data)[0:int(len(data)*(100-percentile)/100)].mean()) # CVaR

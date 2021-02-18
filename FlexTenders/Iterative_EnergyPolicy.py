@@ -180,6 +180,21 @@ print('More params, t={:.2f} seg'.format(t[-1]-t[-2]))
 
 #%% Extract data
 av_w = [[17,20],[0,24]]
+
+#fleet_range = [10,500]
+#nrange = 25
+#x = np.logspace(np.log10(fleet_range[0]), np.log10(fleet_range[1]), num=nrange).round(0)
+x = [31]
+#    x = [10,30,50,70]
+conf_threshold = np.linspace(0.05,1,20)
+penalty_threshold = [0.6, 0.8, 0.9]
+penalty_values = [0, eur_kw * 0.35, eur_kw * 0.7, eur_kw]
+minbid = 10
+nevents = [2, 10]
+
+cols = [j + '_' + k for j in ['Bids', 'Payments', 'UnderDel'] for k in ['Avg', 'min', 'max', 'perc_h', 'perc_l', 'CVaR']]
+
+
 for s in ['Commuter_LP', 'Commuter_HP', 'Company']:
     print(s)
     t.append(time.time())             
@@ -242,19 +257,11 @@ for s in ['Commuter_LP', 'Commuter_HP', 'Company']:
         
         ##%% Iterate on number of evs per fleet
         
-        fleet_range = [10,500]
-        nrange = 25
-        x = np.logspace(np.log10(fleet_range[0]), np.log10(fleet_range[1]), num=nrange).round(0)
-    #    x = [10,30,50,70]
-        conf_threshold = [0.5,0.9,0.99]
-        penalty_threshold = [0.6, 0.8, 0.9]
-        penalty_values = [0, eur_kw * 0.35, eur_kw * 0.7, eur_kw]
-        minbid = 10
+        
         
         stats_VxG = {}
     
         t.append(time.time())
-        cols = [j + '_' + k for j in ['Bids', 'Payments', 'UnderDel'] for k in ['Avg', 'min', 'max', 'perc_h', 'perc_l']]
         for nevs_fleet in x:
         #    if nevs_fleet <= 137:
         #        continue
@@ -272,54 +279,64 @@ for s in ['Commuter_LP', 'Commuter_HP', 'Company']:
             flex_V1G = fpf.get_flex_wrt_bl(fleet_dn, baseline, V2G=False)
             flex_V2G = fpf.get_flex_wrt_bl(fleet_dn, baseline, V2G=True)
         #    flex_V1G_Enedis = fpf.get_flex_wrt_bl(fleet_dn, baseline_Enedis, baseload, V2G=False)
-        #    flex_V2G_Enedis = fpf.get_flex_wrt_bl(fleet_dn, baseline_Enedis, baseload, V2G=True)
+        #    flex_V2G_Enedis = fpf.get_flex_wrt_bl(fleet_dn, baseline_Enedis, baseload, V2G=True)  
             tt.append(time.time())
             print('\tFlexibility profs, t={:.2f} seg'.format(tt[-1]-tt[-2]))
-            for i, f in enumerate(service_time):
-                # Expected payment in €/MWh, considering the same value for availability & utilisation
-                exp_payment = eur_kw / (days_of_service * (a[1]-a[0])/1000 + nevents * (f/60) / 1000)
-                
-                av_payment=exp_payment
-                ut_payment=exp_payment 
-                for j in conf_threshold:
-                    for k in penalty_threshold:
-                        params = dict(av_payment=av_payment, ut_payment=ut_payment,
-                                      nevents=nevents, days_of_service=days_of_service,
-                                      conf=j, service_time=j,
-                                      min_delivery=k, min_bid=minbid, nscenarios=nscenarios)
-                        V1G_bids, V1G_payments, V1G_und = fpf.compute_payments(flex_V1G[i], 
+            # Number of activation events
+            for nact in nevents:          
+                for i, f in enumerate(service_time):
+                    # Expected payment in €/MWh, considering the same value for availability & utilisation
+                    exp_payment = eur_kw / (days_of_service * (a[1]-a[0])/1000 + nact * (f/60) / 1000)
+                    
+                    av_payment=exp_payment
+                    ut_payment=exp_payment 
+                    for j in conf_threshold:
+                        for k in penalty_threshold:
+                            params = dict(av_payment=av_payment, 
+                                          ut_payment=ut_payment,
+                                          nevents=nact, 
+                                          days_of_service=days_of_service,
+                                          conf=j, 
+                                          service_time=i,
+                                          min_delivery=k, 
+                                          min_bid=minbid, 
+                                          nscenarios=nscenarios)
+                            V1G_bids, V1G_payments, V1G_und = fpf.compute_payments(flex_V1G[i], 
+                                                                                   **params)
+                            V2G_bids, V2G_payments, V2G_und = fpf.compute_payments(flex_V2G[i], 
                                                                                **params)
-                        V2G_bids, V2G_payments, V2G_und = fpf.compute_payments(flex_V2G[i], 
-                                                                           **params)
-                        # Save raw data points:                
-                        folder_raw = r'C:\Users\u546416\AnacondaProjects\EV-DSO\FlexTenders\EnergyPolicy\raw\\'
-                        filename = 'fleet{}_avw{}_ev{}_servt{}_confth{}_penaltyth{}'.format(s, a, nevs_fleet, f, j, k)
-                        np.save(folder_raw + filename,
-                                (V1G_bids, V1G_payments, V1G_und, V2G_bids, V2G_payments, V2G_und))
-                        
-                        fpf_params = dict(percentile=95)
-                        statsb = fpf.get_stats(V1G_bids, **fpf_params)
-                        statsu = fpf.get_stats(V1G_und, **fpf_params)
-                        for p in penalty_values:
-                            V1G_payments = V1G_payments - V1G_bids.repeat(nscenarios) * V1G_und * p
-                            statsp = fpf.get_stats(V1G_payments, **fpf_params)
-                            stats_VxG['v1g', nevs_fleet, f, j, k, p] = (statsb + statsp + statsu)
-                        statsb = fpf.get_stats(V2G_bids, **fpf_params)
-                        statsp = fpf.get_stats(V2G_payments, **fpf_params)
-                        statsu = fpf.get_stats(V2G_und, **fpf_params)
-                        for p in penalty_values:
-                            V2G_payments = V2G_payments - V2G_bids.repeat(nscenarios) * V2G_und * p
+                            # Save raw data points:                
+                            folder_raw = r'C:\Users\u546416\AnacondaProjects\EV-DSO\FlexTenders\EnergyPolicy\correct\raw\\'
+                            util.create_folder(folder_raw)
+                            filename = 'fleet{}_avw{}_ev{}_nact{}_servt{}_confth{}_penaltyth{}'.format(s, a, nevs_fleet, nact, f, j, k)
+#                            np.save(folder_raw + filename,
+#                                    (V1G_bids, V1G_payments, V1G_und, V2G_bids, V2G_payments, V2G_und))
+                            
+                            fpf_params = dict(percentile=95)
+                            statsb = fpf.get_stats(V1G_bids, **fpf_params)
+                            statsu = fpf.get_stats(V1G_und, **fpf_params)
+                            for p in penalty_values:
+                                V1G_payments = V1G_payments - V1G_bids.repeat(nscenarios) * V1G_und * p
+                                statsp = fpf.get_stats(V1G_payments, **fpf_params)
+                                stats_VxG['v1g', nevs_fleet, nact, f, j, k, p] = (statsb + statsp + statsu)
+                            statsb = fpf.get_stats(V2G_bids, **fpf_params)
                             statsp = fpf.get_stats(V2G_payments, **fpf_params)
-                            stats_VxG['v2g', nevs_fleet, f, j, k, p] = (statsb + statsp + statsu)
-            del V1G_bids, V1G_payments, V1G_und, V2G_bids, V2G_payments, V2G_und, flex_V2G, flex_V1G, fleet_ch_profs, fleet_dn
-            
+                            statsu = fpf.get_stats(V2G_und, **fpf_params)
+                            for p in penalty_values:
+                                V2G_payments = V2G_payments - V2G_bids.repeat(nscenarios) * V2G_und * p
+                                statsp = fpf.get_stats(V2G_payments, **fpf_params)
+                                stats_VxG['v2g', nevs_fleet, nact, f, j, k, p] = (statsb + statsp + statsu)
+                del V1G_bids, V1G_payments, V1G_und, V2G_bids, V2G_payments, V2G_und
+                
+                
+            del flex_V2G, flex_V1G, fleet_ch_profs, fleet_dn
             tt.append(time.time())
             print('\tStats, t={:.2f} seg'.format(tt[-1]-tt[-2]))
             
             print('Number of evs {}, t={:.2f} seg\n'.format(nevs_fleet, tt[-1]-tt[0]))
         
         stats_VxG = pd.DataFrame(stats_VxG, index=cols).T
-        stats_VxG.index.names = ['VxG', 'nevs', 'service_duration', 'confidence', 'penalty_threshold', 'penalties']
+        stats_VxG.index.names = ['VxG', 'nevs', 'nactivation', 'service_duration', 'confidence', 'penalty_threshold', 'penalties']
         # transform data in per EV
         for i, j in stats_VxG.iterrows():
             stats_VxG.loc[i,:] = stats_VxG.loc[i,:] / i[1]
@@ -330,249 +347,10 @@ for s in ['Commuter_LP', 'Commuter_HP', 'Company']:
         print('Done sim, time {}h{}m{:.0f}s'.format(h, m, sec))
         
         ##%% Save data
-        folder = r'C:\Users\u546416\AnacondaProjects\EV-DSO\FlexTenders\EnergyPolicy\\'
+        folder = r'C:\Users\u546416\AnacondaProjects\EV-DSO\FlexTenders\EnergyPolicy\paretto\\'
         
         filehead = 'full_' + nameset + '_' + aw_s + '_extrapenalties_'
         stats_VxG.to_csv(folder + filehead + 'VxG.csv')
         print('saving')
     
-##%% Plot avg profiles and baselines
-#f, ax = plt.subplots()
-#for i in range(ndays):
-#    ax.plot(fleet_ch_profs[0,i]/x[-1], alpha=0.3)
-#    ax.plot(baseline[0,0]/x[-1], label='Baseline')
-#plt.title('Possible realizations and Baseline')
-#f, axs = plt.subplots(2)
-#axs[0].plot(baseline[0,0]/x[-1], label='Baseline')
-#axs[0].plot(fleet_ch_profs[0,0]/x[-1], label='Realization')
-#for i in range(ndays):
-#    axs[1].plot(flex_V2G[0][0,i]/x[-1], label='_', alpha=0.3)
-#nf, nd, ns = flex_V2G[0].shape
-#for j in conf_threshold:
-#    nconf = int(nd*ns*(1-j))
-#    bid = np.sort(flex_V2G[0].reshape(nf, ns*nd), axis=1)[0, nconf]/x[-1]
-#    axs[1].plot([0, ns], np.ones(2) * bid, '--', label='Bid at {} confidence'.format(j))
-#axs[0].legend()
-#axs[1].legend()
-#f.suptitle('V2G')
-#
-#f, axs = plt.subplots(2)
-#axs[0].plot(baseline[0,0]/x[-1], label='Baseline')
-#axs[0].plot(fleet_ch_profs[0,0]/x[-1], label='Realization')
-#for i in range(ndays):
-#    axs[1].plot(flex_V1G[0][0,i]/x[-1], label='_', alpha=0.3)
-#nf, nd, ns = flex_V1G[0].shape
-#for j in conf_threshold:
-#    nconf = int(nd*ns*(1-j))
-#    bid = np.sort(flex_V1G[0].reshape(nf, ns*nd), axis=1)[0, nconf]/x[-1]
-#    axs[1].plot([0, ns], np.ones(2) * bid, '--', label='Bid at {} confidence'.format(j))
-#axs[1].legend(loc=2)
-#axs[0].legend(loc=2)
-#f.suptitle('V1G')
-
-#%% Plot Average Payments per EV, Error bars
-#idx = pd.IndexSlice
-#
-#
-#for f in service_time:
-#    plt.subplots()
-#    for j in conf_threshold:
-#        v2g = stats_V2G.loc[idx[:,f,j,0.6,0], idx[:]]
-#        plt.errorbar(x, v2g.Payments_Avg, 
-#                     yerr=[(v2g.Payments_Avg - v2g.Payments_perc_l), 
-#                           (v2g.Payments_perc_h - v2g.Payments_Avg)],
-#                           elinewidth=0.8, capsize=1.5, ecolor='k', color='b',
-#                           label='V2G at {} confidence'.format(j))
-#    plt.legend()
-#    plt.title('Annual revenue per EV,\n{} min service time'.format(f))
-#    plt.xlabel('Fleet size')
-#    plt.ylabel('Revenue [€/EV.y]')
-##plt.axis((0,100, 0,500))
-
-##%% Plot average payments per EV, with shaded area for confidence
-#idx = pd.IndexSlice
-#max_nevs = stats_V2G.index.max()[0]
-#
-#NUM_COLORS = 6
-#cm = plt.get_cmap('Paired')
-#colors = [cm(1.*(i*2+1)/(NUM_COLORS*2)) for i in range(NUM_COLORS)]
-#
-#folder_figs = r'c:\user\U546416\Pictures\FlexTenders\EnergyPolicy\\'
-#    
-#for f in service_time:
-#    plt.subplots()
-#    for i, j in enumerate(conf_threshold):
-#        v2g = stats_V2G.loc[idx[:,f,j,0.6,0], idx[:]]
-#        plt.plot(x, v2g.Payments_Avg, linewidth=1.5, color=colors[i],
-#                           label='V2G at {} confidence'.format(j))
-#        plt.fill_between(x, v2g.Payments_perc_l, v2g.Payments_perc_h, 
-#                         alpha=0.2, color=colors[i], label='_90% range')
-#        v1g = stats_V1G.loc[idx[:,f,j,0.6,0], idx[:]]
-#        plt.plot(x, v1g.Payments_Avg, linewidth=1.5, color=colors[i], linestyle='--',
-#                           label='V1G at {} confidence'.format(j))
-#        plt.fill_between(x, v1g.Payments_perc_l, v1g.Payments_perc_h, 
-#                         alpha=0.1, color=colors[i], label='_90% range')
-#    plt.legend()
-#    plt.title('Annual revenue per EV,\n{}min service time'.format(f))
-#    plt.xlabel('Fleet size')
-#    plt.ylabel('Revenue [€/EV.y]')
-#    plt.xlim(0,max_nevs)
-#    plt.ylim(0,np.round(stats_V2G.Payments_perc_h.max(),-1)+10)
-#    plt.grid(linestyle='--', alpha=0.8)
-#    plt.savefig(folder_figs + '{}_Rev_{}m_{}.png'.format(nameset,j,aw_s))
-#
-##%% Plot average payments per EV, with shaded area for confidence - comparison of penalties
-#idx = pd.IndexSlice
-#
-#NUM_COLORS = 6
-#cm = plt.get_cmap('Paired')
-#colors = [cm(1.*(i*2+1)/(NUM_COLORS*2)) for i in range(NUM_COLORS)]
-#
-#folder_figs = r'c:\user\U546416\Pictures\FlexTenders\EnergyPolicy\\'
-#    
-#for f in service_time:
-#    plt.subplots()
-#    for i, j in enumerate(conf_threshold):
-#        v2g = stats_V2G.loc[idx[:,f,j,0.6,0], idx[:]]
-#        plt.plot(x, v2g.Payments_Avg, linewidth=1.5, color=colors[i],
-#                           label='V2G at {} confidence, no penalties'.format(j))
-#        plt.fill_between(x, v2g.Payments_perc_l, v2g.Payments_perc_h, 
-#                         alpha=0.1, color=colors[i], label='_90% range')
-#        p = 17.5
-#        v2g = stats_V2G.loc[idx[:,f,j,0.8,p], idx[:]]
-#        plt.plot(x, v2g.Payments_Avg, linewidth=1.5, color=colors[i], linestyle='--',
-#                           label='V2G at {} confidence, penalties @{}%'.format(j, int(p*2)))
-#        plt.fill_between(x, v2g.Payments_perc_l, v2g.Payments_perc_h, 
-#                         alpha=0.1, color=colors[i], label='_90% range')
-#    plt.legend()
-#    plt.title('Annual revenue per EV,\n{}min service time'.format(f))
-#    plt.xlabel('Fleet size')
-#    plt.ylabel('Revenue [€/EV.y]')
-#    plt.xlim(0,max_nevs)
-#    plt.ylim(min(0, np.round(stats_V2G.Payments_perc_l.min(),-1)-10),np.round(stats_V2G.Payments_perc_h.max(),-1)+10)
-#    plt.grid(linestyle='--', alpha=0.8)
-#    plt.savefig(folder_figs + '{}_Rev_p_{}m_{}.png'.format(nameset,j, aw_s))
-#
-#
-##%% Plot Avg Bids per EV
-#for f in service_time:
-#    plt.subplots()
-#    for i, j in enumerate(conf_threshold):
-#        v2g = stats_V2G.loc[idx[:,f,j,0.6,0], idx[:]]
-#        plt.plot(x, v2g.Bids_Avg, linewidth=1.5, color=colors[i],
-#                           label='V2G bid {} confidence'.format(j))
-#        plt.fill_between(x, v2g.Bids_perc_l, v2g.Bids_perc_h, 
-#                         alpha=0.1, color=colors[i], label='_90% range')
-##        plt.errorbar(x, v2g.Bids_Avg, 
-##                     yerr=[(v2g.Bids_Avg - v2g.Bids_perc_l), 
-##                           (v2g.Bids_perc_h - v2g.Bids_Avg)],
-##                           elinewidth=0.8, capsize=1.5, color=colors[i],
-##                           label='{} confidence'.format(j))
-#    plt.plot(x, v1g.Bids_Avg, linewidth=1.5, color=colors[i+1],
-#                           label='V1G bid'.format(j))
-#    plt.fill_between(x, v1g.Bids_perc_l, v1g.Bids_perc_h, 
-#                         alpha=0.1, color=colors[i+1], label='_90% range')
-#    plt.legend()
-#    plt.title('Bid per EV,\n{}min service time'.format(f))
-#    plt.xlabel('Fleet size')
-#    plt.ylabel('Bid [kW]')
-#    plt.xlim(0,max_nevs)
-#    plt.ylim(0,np.ceil(stats_V2G.Bids_perc_h.max()))
-#    plt.grid(linestyle='--', alpha=0.8)
-#    plt.savefig(folder_figs + '{}_Bid_{}m_{}.png'.format(nameset,j,aw_s))
-#    
-##for f in service_time:
-##    plt.subplots()
-##    for i, j in enumerate(conf_threshold):
-##        v1g = stats_V1G.loc[idx[:,f,j], idx[:]]
-##        plt.errorbar(x, v1g.Bids_Avg, 
-##                     yerr=[(v1g.Bids_Avg - v1g.Bids_perc_l), 
-##                           (v1g.Bids_perc_h - v1g.Bids_Avg)],
-##                           elinewidth=0.8, capsize=1.5, color=colors[i],
-##                           label='{} confidence'.format(j))
-##    plt.legend()
-##    plt.title('Bid per EV with V1G,\n{}min service time'.format(f))
-##    plt.xlabel('Fleet size')
-##    plt.ylabel('Bid [kW]')
-##    plt.ylim(0,np.round(stats_V1G.Bids_perc_h.max(),0)+1)
-##    plt.grid(linestyle='--', alpha=0.8)
-##        #plt.axis((0,100, 0,10))
-#
-#
-##%% Plot Avg Under-delivery
-#
-#for f in service_time:
-#    plt.subplots()
-#    for i, j in enumerate(conf_threshold):
-#        v2g = stats_V2G.loc[idx[:,f,j,0.6,0], idx[:]]
-#        plt.plot(x, v2g.UnderDel_Avg * 100, linewidth=1.5, color=colors[i],
-#                           label='{} confidence, u.d. threshold 60%'.format(j))
-#        plt.fill_between(x, v2g.UnderDel_perc_l  * 100, v2g.UnderDel_perc_h * 100, 
-#                         alpha=0.1, color=colors[i], label='_90% range')
-#        
-#        v2g = stats_V2G.loc[idx[:,f,j,0.8,17.5], idx[:]]
-#        plt.plot(x, v2g.UnderDel_Avg * 100, '--', linewidth=1.5, color=colors[i],
-#                           label='{} confidence, u.d. threshold 80%'.format(j))
-#        plt.fill_between(x, v2g.UnderDel_perc_l  * 100, v2g.UnderDel_perc_h * 100, 
-#                         alpha=0.1, color=colors[i], label='_90% range')
-##        plt.errorbar(x, v2g.UnderDel_Avg * 100, 
-##                     yerr=[(v2g.UnderDel_Avg - v2g.UnderDel_perc_l) * 100, 
-##                           (v2g.UnderDel_perc_h - v2g.UnderDel_Avg) * 100],
-##                           elinewidth=0.8, capsize=1.5, ecolor='k', color='b',
-##                           label='{} confidence'.format(j))
-##                
-##    plt.plot(x, v1g.UnderDel_Avg * 100, linewidth=1.5, color=colors[i+1],
-##                           label='V1G'.format(j))
-#    plt.fill_between(x, v1g.UnderDel_perc_l * 100, v1g.UnderDel_perc_h * 100, 
-#                     alpha=0.1, color=colors[i+1], label='_90% range')
-#    plt.legend()
-#    plt.title('Under-delivery,\n{}min service time'.format(f))
-#    plt.xlabel('Fleet size')
-#    plt.ylabel('Under-delivery [%]')
-#    plt.xlim(0,max_nevs)
-##    plt.ylim
-#    plt.grid(linestyle='--', alpha=0.8)
-#    plt.savefig(folder_figs + '{}_UD_{}_{}m.png'.format(nameset,j,aw_s))
-#        
-##for f in service_time:
-##    plt.subplots()
-##    for i, j in enumerate(conf_threshold):
-##        v1g = stats_V1G.loc[idx[:,f,j], idx[:]]
-##        plt.errorbar(x, v1g.UnderDel_Avg * 100, 
-##                     yerr=[(v1g.UnderDel_Avg - v1g.UnderDel_perc_l) * 100, 
-##                           (v1g.UnderDel_perc_h - v1g.UnderDel_Avg) * 100],
-##                           elinewidth=0.8, capsize=1.5, ecolor='k', color='b',
-##                           label='{} confidence'.format(j))
-##                
-##    plt.legend()
-##    plt.title('Under-delivery (<60%) with V1G,\n{}min service time'.format(f))
-##    plt.xlabel('Fleet size')
-##    plt.ylabel('Under-delivery [%]')
-#
-#
-##%% Load data
-#
-#folder = r'EnergyPolicy//'
-#av_w  = '0_24'
-#nameset = 'Commuter_LP'
-#filehead = nameset + '_' + aw_s + '_'
-#stats_V1G = pd.read_csv(folder + filehead + 'V1G.csv', index_col=[0,1,2,3,4])
-#stats_V2G = pd.read_csv(folder + filehead + 'V2G.csv', index_col=[0,1,2,3,4])
-#
-#
-##%% 
-#sets = ['Commuter_HP', 'Commuter_LP', 'Company']
-#folder = r'EnergyPolicy//'
-#av_w  = ['0_24', '17_20']
-#bds = ['Bids_Avg', 'Bids_perc_l', 'Bids_perc_h']
-#res = {}
-#res2 = {}
-#
-#for s in sets:
-#    for a in av_w:
-#        filehead = s + '_' + a + '_'
-#        stats = pd.read_csv(folder + filehead + 'V1G.csv', index_col=[0,1,2,3,4])
-#        res[s, a] = stats[bds].loc[30,30,0.5,0.6,0]
-#        res2[s, a] = stats[bds].loc[70,30,0.5,0.6,0]
-#        print(s,a, stats[bds].loc[30,30,0.5,0.6,0].values)
-#        
+        

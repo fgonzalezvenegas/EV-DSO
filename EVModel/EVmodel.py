@@ -740,7 +740,7 @@ class EV:
             self.charging_power = discrete_random_data(charging_power[0], charging_power[1])
         else:
             ValueError('Invalid charging_power value')     
-        if type(batt_size) is int or type(batt_size) is float:
+        if type(batt_size) in [int, float, np.int32, np.float]:
             self.batt_size = batt_size
         elif len(batt_size) == 2:
             self.batt_size = discrete_random_data(batt_size[0], batt_size[1])
@@ -856,6 +856,8 @@ class EV:
             dt = 0
             # Why this 3! completely arbitrary!!!
             while dt < 3:
+                if 'bins' in kwargs:
+                    bins_hours = kwargs['bins'] 
                 if 'cdf_arr' in kwargs:
                     self.arrival = random_from_cdf(kwargs['cdf_arr'], bins_hours)
                 else:
@@ -978,7 +980,8 @@ class EV:
             next_trip_energy = ((self.dist_wd if model.days[model.day + 1] < 5 
                                                 else self.dist_we) * 
                                 self.n_trips * self.driving_eff)
-        min_soc_trip = max(next_trip_energy * self.range_anx_factor / self.batt_size, self.min_soc)
+#        min_soc_trip = max(next_trip_energy * self.range_anx_factor / self.batt_size, self.min_soc)
+        min_soc_trip = next_trip_energy * self.range_anx_factor / self.batt_size
         
         # TODO: Other types of charging ?
         if self.charging_type == 'all_days':

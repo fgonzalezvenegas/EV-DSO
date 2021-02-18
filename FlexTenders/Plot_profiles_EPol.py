@@ -155,6 +155,10 @@ grid.add_evs(nameset='Commuter_LP', n_evs=n_evs, ev_type='dumb',
              flex_time=service_time,
              **general_params,
              **commuter_params_LP)
+for i, ev in enumerate(grid.evs_sets['Commuter_LP']):
+    grid.evs_sets['Commuter_HP'][i].dist_we = ev.dist_we
+    grid.evs_sets['Commuter_HP'][i].dist_wd = ev.dist_wd
+    
 grid.do_days()
 grid.plot_ev_load(day_ini=7, days=14)
 grid.plot_flex_pot(day_ini=7, days=14)
@@ -241,7 +245,7 @@ axv.set_edgecolor('olive')
 plt.legend(loc=1)
 plt.ylim(-220,220)
 
-#%% Add arrows
+# Add arrows
 p1 = 16.5
 p2 = 19
 idxp1 = int((p1-12)%24 * 60 / step)
