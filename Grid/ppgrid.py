@@ -54,17 +54,17 @@ def plot_v_profile(net, ax=None, vmin=0.95, vmax=1.05):
     
     plt.autoscale()
     
-    
-    fs = net.bus.zone.unique()
-    # Writes Feeder name at the end of it
-    for f in fs:
-        if not (f is None):
-            if not f is 'SS':
-                bm = distance_bus[net.bus[net.bus.zone == f].index].idxmax()
-                dm = distance_bus[bm]
-                vm = net.res_bus.vm_pu[bm]
-                ax.text(x=dm+0.5, y=vm, s=f)
-    
+    if 'Feeder' in net.bus:
+        fs = net.bus.Feeder.unique()
+        # Writes Feeder name at the end of it
+        for f in fs:
+            if not ((f is None) or not (f==f)):
+                if not 'SS' in f:
+                    bm = distance_bus[net.bus[net.bus.Feeder == f].index].idxmax()
+                    dm = distance_bus[bm]
+                    vm = net.res_bus.vm_pu[bm]
+                    ax.text(x=dm+0.5, y=vm, s=f)
+        
     #Draws horizontal line at min and max V (in pu)
     ax.axhline(vmin, linestyle='dashed', color='red')
     ax.axhline(vmax, linestyle='dashed', color='red')
@@ -143,7 +143,7 @@ def add_res_pv_rooftop(net, pv_penetration, iris_data, pv_cap_kw=4,
     if (lv_per_geo is None):
         if ('n_trafo_iris' in net.load):
             lv_per_geo = net.load.ntrafo_iris
-            lv_per_geo.index = net.load.name
+            lv_per_geo.index = net.load.zone
         else:
             print('No data of number of LV trafos per IRIS')
             return
@@ -152,7 +152,7 @@ def add_res_pv_rooftop(net, pv_penetration, iris_data, pv_cap_kw=4,
     npvs = 0
     for i, t in net.load.loc[loads].iterrows():
         b = t.bus
-        iris = t['name']
+        iris = t.zone
         # Share of MW at each LV transfo
         n_trafos = lv_per_geo[iris]
         # number of PV
@@ -277,7 +277,7 @@ class Profiler():
         return check
    
 class output_writer():
-    def __init__(self, net, outputfolder=''):
+    def __init__(self, net, outputfolder='', feeder_pq=True):
         self.net = net
         self.res_v = {}
         self.res_line_load = {}
@@ -289,6 +289,13 @@ class output_writer():
         self.outputfolder = outputfolder
         self.consolidated = False
         self.sgen_gen = {}
+        self.feeder_pq = feeder_pq
+        if self.feeder_pq:
+            self.p_feeder = {}
+            self.q_feeder = {}
+            self.lines0 = net.line[net.line.from_bus==0].index
+            self.feeder = [f[-3:] for f in net.line[net.line.from_bus==0].name]
+        
     def get_results(self, ts):
         self.res_v[ts] = self.net.res_bus.vm_pu
         self.res_line_load[ts] = self.net.res_line.loading_percent.max()
@@ -298,6 +305,9 @@ class output_writer():
         self.res_trafo_mw[ts] = self.net.res_trafo.p_hv_mw.sum()
         self.res_trafo_tap_pos[ts] = self.net.trafo.tap_pos[0]
         self.sgen_gen[ts] = self.net.res_sgen.p_mw.sum()
+        if self.feeder_pq:
+            self.p_feeder[ts] = self.net.res_line.p_from_mw[self.lines0]
+            self.q_feeder[ts] = self.net.res_line.q_from_mvar[self.lines0]
         
     def consolidate(self):
         self.res_v = pd.DataFrame(self.res_v).T
@@ -306,6 +316,9 @@ class output_writer():
                                         self.sgen_gen],
                                         index=['MaxLineLoading_perc', 'ActLosses_MW', 'ReactLosses_MVar',
                                                'TotLoad_MW', 'TrafoOut_MW', 'TrafoTapPos', 'Static_gen']).T
+        if self.feeder_pq:
+            self.p_feeder = pd.DataFrame(self.p_feeder, index=self.feeder).T
+            self.q_feeder = pd.DataFrame(self.q_feeder, index=self.feeder).T
         
     def save_results(self, outputfolder=None):
         if outputfolder is None:
@@ -316,12 +329,16 @@ class output_writer():
         self.res_v.to_csv(of + r'/vm_pu.csv')
         self.global_res.to_csv(of + r'/global_res.csv')
         
+        if self.feeder_pq:
+            self.p_feeder.to_csv(of + r'/p_feeder.csv')
+            self.q_feeder.to_csv(of + r'/q_feeder.csv')
+        
 
 class Iterator():
-    def __init__(self, net,  profiler=None, ow=None):
+    def __init__(self, net,  profiler=None, ow=None, feeder_pq=False):
         self.net = net
         if ow is None:
-            self.ow = output_writer(net)
+            self.ow = output_writer(net, feeder_pq=feeder_pq)
         else:
             self.ow = ow
         if profiler is None:
