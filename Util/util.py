@@ -129,14 +129,9 @@ def plot_arr_dep_hist(hist, binsh=np.arange(0,24.5,0.5), ftitle=''):
 def length_segment_WGS84(segment, unit='m'):
     """ Returns the length in meters of a segment
     of points in GPS coordinates [(lon, lat)_i, ....] """
-    k = dict(km=1,
-             m=1000)[unit]
-    l = 0
-    p0 = segment[0]
-    for p in segment[1:]:
-        l += computeDist(p0, p)
-        p0 = p
-    return l * k
+    k = dict(km=1000, m=1)[unit]
+    l = sum([haversine(segment[i], segment[i+1]) for i in range(len(segment)-1)])
+    return l / k
     
 def fix_wrong_encoding_str(pdSeries):
     """
@@ -351,7 +346,7 @@ def interpolate(data, step=15, **kwargs):
         raise ValueError('Invalid step, it should be a divisor of data step')
     return data.asfreq(freq=dt.timedelta(minutes=step)).interpolate(**kwargs)
     
-def computeDist(latlon1, latlon2):
+def compute_pith_dist(latlon1, latlon2):
     """Computes pythagorean distance between 2 points (need to be np.arrays)
     """
     if type(latlon1) == list:
@@ -365,6 +360,42 @@ def computeDist(latlon1, latlon2):
     y = deltaLatLon[0]
     return radius*np.sqrt(x*x + y*y)
 
+def compute_pith_dist(latlon1, latlon2):
+    """Computes pythagorean distance between 2 points (need to be np.arrays) (baaad)
+    """
+    if type(latlon1) == list:
+        latlon1 = np.array(latlon1)
+        latlon2 = np.array(latlon2)
+    radius=6371
+    latlon1 = latlon1 * np.pi/180
+    latlon2 = latlon2 * np.pi/180
+    deltaLatLon = (latlon2-latlon1)
+    x = deltaLatLon[1] * np.cos((latlon1[0]+latlon2[0])/2)
+    y = deltaLatLon[0]
+    return radius*np.sqrt(x*x + y*y)
+
+def haversine(coord1: object, coord2: object):
+    """ Computes distance using Haversine function (goood)
+    """
+    # Coordinates in decimal degrees (e.g. 2.89078, 12.79797)
+    lon1, lat1 = coord1
+    lon2, lat2 = coord2
+
+    R = 6371000  # radius of Earth in meters
+    phi_1 = np.radians(lat1)
+    phi_2 = np.radians(lat2)
+
+    delta_phi = np.radians(lat2 - lat1)
+    delta_lambda = np.radians(lon2 - lon1)
+
+    a = np.sin(delta_phi / 2.0) ** 2 + np.cos(phi_1) * np.cos(phi_2) * np.sin(delta_lambda / 2.0) ** 2
+    
+    c = 2 * np.arctan2(np.sqrt(a), np.sqrt(1 - a))
+
+    meters = R * c  # output distance in meters
+    
+    return meters
+
 def sec_to_time(s):
     """ Returns the hours, minutes and seconds of a given time in secs
     """
@@ -374,8 +405,8 @@ def compute_aspect_carte(lon1, lon2, lat1, lat2):
     """ Sets the ratio of height/width for WGPS-based maps
     """   
     lat0, lon0 = (lat1+lat2)/2, (lon1+lon2)/2
-    km_per_lat = computeDist([lat1, lon0], [lat2, lon0]) / abs(lat1-lat2)
-    km_per_lon = computeDist([lat0, lon1], [lat0, lon2]) / abs(lon1-lon2)
+    km_per_lat = haversine([lat1, lon0], [lat2, lon0]) / abs(lat1-lat2)
+    km_per_lon = haversine([lat0, lon1], [lat0, lon2]) / abs(lon1-lon2)
     return km_per_lat / km_per_lon
 
 def create_folder(path, *folders):
