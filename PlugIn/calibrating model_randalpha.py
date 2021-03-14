@@ -14,6 +14,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import EVmodel
     
+import statsmodels.api as sm
+
+# Save params
+output_folder = r'c:\user\U546416\Documents\PhD\Data\Plug-in Model\Calibration\\'
+folder_img = r'c:\user\U546416\Pictures\ElectricNation\PlugIn\\'
 
 ## Simulation parameters
 nweeks = 10
@@ -105,7 +110,6 @@ for idx in batt.keys():
     ch_sessions[idx, 'median'] = chsmedian_test
 
 #%% save data:
-output_folder = r'c:\user\U546416\Documents\PhD\Data\Plug-in Model\Calibration\\'
 df = pd.DataFrame(ch_sessions)
 df.index.name = 'alpha'
 df.to_csv(output_folder + 'ch_sessions_randalpha.csv')
@@ -233,8 +237,26 @@ for (i, idx), alphadata in alphas.iterrows():
 ch_sessions = pd.DataFrame(ch_sessions)
 en_session = pd.DataFrame(en_session)
 daily_dist = pd.DataFrame(daily_dist)
-#%% Plot scatters to show results from simulation
+# save results
+
+ch_sessions.to_csv(output_folder + 'ch_sessions_simu_fixedalpha.csv')
+en_session.to_csv(output_folder + 'en_session_simu_fixedalpha.csv')
+daily_dist.to_csv(output_folder + 'daily_dist_simu_fixedalpha.csv')
+
+
+#%% Plot scatters to show results from simulation - HOMOGENEOUS ALPHA
 cmap = plt.get_cmap('viridis')
+
+
+ch_sessions = pd.read_csv(output_folder + 'ch_sessions_simu_fixedalpha.csv',
+                          engine='python', index_col=0)
+en_session = pd.read_csv(output_folder + 'en_session_simu_fixedalpha.csv',
+                          engine='python', index_col=0)
+daily_dist = pd.read_csv(output_folder + 'daily_dist_simu_fixedalpha.csv',
+                          engine='python', index_col=0)
+idxs = ['small', 'allevs40', 'big']
+strs = {'small':'Small', 'allevs40':'Average', 'big':'Large'}
+
 
 #idx = 'allevs40'
 #f,ax = plt.subplots(1,2)
@@ -247,15 +269,19 @@ cmap = plt.get_cmap('viridis')
 
 colorsLR = {'big': 'orange', 'allevs40': 'darkgreen', 'small': 'darkblue'}
 f,ax = plt.subplots(1,2)
-f.set_size_inches(11,4.76)
+f.set_size_inches(9,4) #(11,4.76)
 
-n = 1000
+n = 150
+a = 0.7
 evpl = daily_dist[daily_dist.allevs40<120].iloc[0:n].index
+
+ax[0].set_title('(a)', y=-0.25)
+ax[1].set_title('(b)', y=-0.25)
 
 for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     color = cmap(batt[idx]/100)
     plt.sca(ax[0])
-    plt.scatter(ch_sessions[idx][evpl]*7, en_session[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=0.3)
+    plt.scatter(ch_sessions[idx][evpl]*7, en_session[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=a)
     plt.xlabel('Weekly sessions')
     plt.ylabel('Charged energy per session [kWh]')
     plt.grid('--', alpha=0.5)
@@ -263,13 +289,12 @@ for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     plt.ylim(0,70)
     plt.legend()
     plt.sca(ax[1])
-    plt.scatter(ch_sessions[idx][evpl]*7, daily_dist[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=0.3)
+    plt.scatter(ch_sessions[idx][evpl]*7, daily_dist[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=a)
     plt.xlabel('Weekly sessions')
     plt.ylabel('Daily distance [km]')
     plt.grid('--', alpha=0.5)
     plt.xlim(0,12)
     plt.ylim(0,160)
-    import statsmodels.api as sm
     ## adding Linear regression for small and large EVs
     lr = sm.OLS(pd.Series(daily_dist[idx]), sm.add_constant(pd.Series(ch_sessions[idx]*7))).fit()
     x = np.arange(0,15,1)
@@ -284,7 +309,7 @@ for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     dx, dy = -0.2, +0.5
     yb = 100+20*j
     xs = 12 - 3*j
-    eq = 'y={:.1f}x+{:.1f}\n'.format(lr.params.iloc[1], lr.params.iloc[0])
+    eq = 'y={:.1f}x{:.1f}\n'.format(lr.params.iloc[1], lr.params.iloc[0])
     r2 = r'$r^2$={:.2f}'.format(rsq)
     plt.text(xs+dx,yb+dy,
              eq + r2, 
@@ -292,11 +317,10 @@ for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     print(idx, '\t', eq[:-1], r2)
     plt.legend(loc=4)
     f.tight_layout()
-#%% save results
-ch_sessions.to_csv(output_folder + 'ch_sessions_simu_fixedalpha.csv')
-en_session.to_csv(output_folder + 'en_session_simu_fixedalpha.csv')
-daily_dist.to_csv(output_folder + 'daily_dist_simu_fixedalpha.csv')
-
+    
+v = 2 if n==150 else 1
+plt.savefig(folder_img + 'sed_Simu_fixedalpha_vsmall{}.png'.format(v))
+plt.savefig(folder_img + 'sed_Simu_fixedalpha_vsmall{}.pdf'.format(v))
 #%% Try grid with random alpha
     
     #### THIS IS WEIRDLY GOOOOOD ####
@@ -342,7 +366,7 @@ en_session = pd.DataFrame(en_session)
 daily_dist = pd.DataFrame(daily_dist)
 soc_session = en_session / np.array([batt[i] for i in en_session])
 
-#%% save results
+#%% save results RANDALPHA
 #ch_sessions.to_csv(output_folder + 'ch_sessions_simu_randalpha.csv')
 #en_session.to_csv(output_folder + 'en_session_simu_randalpha.csv')
 #daily_dist.to_csv(output_folder + 'daily_dist_simu_randalpha.csv')
@@ -353,8 +377,18 @@ en_session = pd.read_csv(output_folder + 'en_session_simu_randalpha.csv',
                           engine='python', index_col=0)
 daily_dist = pd.read_csv(output_folder + 'daily_dist_simu_randalpha.csv',
                           engine='python', index_col=0)
-#%% Plot scatters to show results from simulation
+#%% Plot scatters to show results from simulation - RANDALPHA
 cmap = plt.get_cmap('viridis')
+
+ch_sessions = pd.read_csv(output_folder + 'ch_sessions_simu_randalpha.csv',
+                          engine='python', index_col=0)
+en_session = pd.read_csv(output_folder + 'en_session_simu_randalpha.csv',
+                          engine='python', index_col=0)
+daily_dist = pd.read_csv(output_folder + 'daily_dist_simu_randalpha.csv',
+                          engine='python', index_col=0)
+idxs = ['small', 'allevs40', 'big']
+strs = {'small':'Small', 'allevs40':'Average', 'big':'Large'}
+
 
 #idx = 'allevs40'
 #f,ax = plt.subplots(1,2)
@@ -367,10 +401,14 @@ cmap = plt.get_cmap('viridis')
 
 colorsLR = {'big': 'orange', 'allevs40': 'darkgreen', 'small': 'darkblue'}
 f,ax = plt.subplots(1,2)
-f.set_size_inches(11,4.76)
+f.set_size_inches(9,4) #(11,4.76)
 
-n = 1000
-a = 0.3
+
+ax[0].set_title('(a)', y=-0.25)
+ax[1].set_title('(b)', y=-0.25)
+
+n = 150
+a = 0.7
 dmax = 140
 evpl = daily_dist[daily_dist.allevs40<dmax].iloc[0:n].index
 xs = [12,11,9]
@@ -393,7 +431,6 @@ for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     plt.grid('--', alpha=0.5)
     plt.xlim(0,12)
     plt.ylim(0,160)
-    import statsmodels.api as sm
     ## adding Linear regression for small and large EVs
     lr = sm.OLS(pd.Series(daily_dist[idx][evpl]), sm.add_constant(pd.Series(ch_sessions[idx][evpl]*7))).fit()
     x = np.arange(0,15,1)
@@ -413,3 +450,7 @@ for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     print(idx, '\t', eq[:-1], r2)
     plt.legend(loc=4)
     f.tight_layout()
+    
+v = 2 if n==150 else 1
+plt.savefig(folder_img + 'sed_Simu_randalpha_vsmall{}.png'.format(v))
+plt.savefig(folder_img + 'sed_Simu_randalpha_vsmall{}.pdf'.format(v))

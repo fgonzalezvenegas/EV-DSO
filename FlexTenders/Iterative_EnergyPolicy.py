@@ -32,7 +32,7 @@ ovn=True
 
 # FLEET PARAMS
 batt_size = 50
-ch_power = 7
+ch_power = 11
 
 t.append(time.time())                            
 print('Loaded params, t={:.2f} seg'.format(t[-1]-t[-2]))  
@@ -178,7 +178,8 @@ t.append(time.time())
 print('More params, t={:.2f} seg'.format(t[-1]-t[-2]))
 #minbid = 50
 
-#%% Extract data
+#%% Do simulations!!
+
 av_w = [[17,20],[0,24]]
 
 #fleet_range = [10,500]
@@ -194,6 +195,9 @@ nevents = [2, 10]
 
 cols = [j + '_' + k for j in ['Bids', 'Payments', 'UnderDel'] for k in ['Avg', 'min', 'max', 'perc_h', 'perc_l', 'CVaR']]
 
+##%% Save data
+folder = r'C:\Users\u546416\AnacondaProjects\EV-DSO\FlexTenders\EnergyPolicy\11kw\\'
+filehead = 'full_extrapenalties_'
 
 for s in ['Commuter_LP', 'Commuter_HP', 'Company']:
     print(s)
@@ -306,9 +310,8 @@ for s in ['Commuter_LP', 'Commuter_HP', 'Company']:
                             V2G_bids, V2G_payments, V2G_und = fpf.compute_payments(flex_V2G[i], 
                                                                                **params)
                             # Save raw data points:                
-                            folder_raw = r'C:\Users\u546416\AnacondaProjects\EV-DSO\FlexTenders\EnergyPolicy\correct\raw\\'
-                            util.create_folder(folder_raw)
-                            filename = 'fleet{}_avw{}_ev{}_nact{}_servt{}_confth{}_penaltyth{}'.format(s, a, nevs_fleet, nact, f, j, k)
+                            util.create_folder(folder + r'raw\\')
+#                            filename = 'fleet{}_avw{}_ev{}_nact{}_servt{}_confth{}_penaltyth{}'.format(s, a, nevs_fleet, nact, f, j, k)
 #                            np.save(folder_raw + filename,
 #                                    (V1G_bids, V1G_payments, V1G_und, V2G_bids, V2G_payments, V2G_und))
                             
@@ -338,19 +341,16 @@ for s in ['Commuter_LP', 'Commuter_HP', 'Company']:
         stats_VxG = pd.DataFrame(stats_VxG, index=cols).T
         stats_VxG.index.names = ['VxG', 'nevs', 'nactivation', 'service_duration', 'confidence', 'penalty_threshold', 'penalties']
         # transform data in per EV
-        for i, j in stats_VxG.iterrows():
-            stats_VxG.loc[i,:] = stats_VxG.loc[i,:] / i[1]
-            
+        for c in stats_VxG.columns:
+            stats_VxG[c] = stats_VxG[c] / stats_VxG.index.get_level_values(1)
         
         t.append(time.time())
         (h,m,sec) = util.sec_to_time(t[-1]-t[-2])
         print('Done sim, time {}h{}m{:.0f}s'.format(h, m, sec))
         
-        ##%% Save data
-        folder = r'C:\Users\u546416\AnacondaProjects\EV-DSO\FlexTenders\EnergyPolicy\paretto\\'
-        
-        filehead = 'full_' + nameset + '_' + aw_s + '_extrapenalties_'
-        stats_VxG.to_csv(folder + filehead + 'VxG.csv')
+       
+        filename = filehead + nameset + '_' + aw_s + 'VxG.csv'
+        stats_VxG.to_csv(folder + filename)
         print('saving')
     
         

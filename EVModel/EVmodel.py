@@ -44,6 +44,8 @@ pdfunc = (dist_function/sum(dist_function)).cumsum()
 bins_hours = np.linspace(0,24,num=25)
 dsnms = ['Mon', 'Tues', 'Wed', 'Thur', 'Fri', 'Sat', 'Sun']
 
+extraevkwargs = ['pmin_charger', 'pop_dur']
+
 def sec_to_time(s):
     """ Returns the hours, minutes and seconds of a given time in secs
     """
@@ -827,6 +829,10 @@ class EV:
         self.set_ch_vector(model)
         self.set_off_peak(model)
         
+        for kw in kwargs:
+            if not kw in extraevkwargs:
+                print('WARNING: {} is not a recognized parameter'.format(kw))
+                
     def compute_derived_params(self, model):    
         """ Computes derived params that are useful
         """

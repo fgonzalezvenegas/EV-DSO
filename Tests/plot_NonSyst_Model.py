@@ -67,13 +67,16 @@ def plot_one(ax=None, batt=40, kms=60, eff=0.2,  range_anx=1.5,
 #%% Plot non syst for various n
 n = [1/4,1,4]
 f, ax = plt.subplots()
-plot_one(ax, kms=60, deterministic=True, label='Deterministic', extralines=True)
-plot_one(ax, kms=60, n=1, label='Probabilistic, n=1')
-ax.text(s='Minimum needed SOC', x=47,y=1.02)
+#plot_one(ax, kms=60, deterministic=True, label='Deterministic', extralines=True)
+plot_one(ax, kms=40, n=1/4, label=r'$\alpha$=1/4')
+plot_one(ax, kms=40, n=1, label=r'$\alpha$=1')
+plot_one(ax, kms=40, n=4, label=r'$\alpha$=4')
+ax.axvline((40*0.2/40*1.5)*100, color='k', linestyle='--', alpha=0.8, label=r'$\xi$')
+#ax.text(s=r'$\xi$', x=(40*0.2/40*1.5)*100,y=1.02)
 plt.legend(loc=3)
+plt.title('')
 #%%
-plot_one(ax, kms=60, n=1/4, label='Probabilistic, n=1/4')
-plot_one(ax, kms=60, n=4, label='Probabilistic, n=4')
+
 
 #%% Plot adjusted to GonzalezGarrido DTU 2019
 # n=1.8

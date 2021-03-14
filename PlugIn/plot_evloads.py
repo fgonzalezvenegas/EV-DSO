@@ -16,11 +16,6 @@ import pandas as pd
 #%% 0 Params
 t = []
 t.append(time.time())
-# Case 1 : Company fleet IN-BUILDING
-    # This means they will charge during the night
-# Case 2: Commuters with medium probability of plugin (n=1)
-# Case 3: Commuters with medium probability of plugin (n=5)
-# Case x: JPL
 
 n_evs = 1000
 ovn=True
@@ -103,6 +98,7 @@ grid = EVmodel.Grid(ndays=ndays, step=step, verbose=False)
 evs = {}
 for name, params in ev_params.items():
     evs[name] = grid.add_evs(nameset=name, n_evs=n_evs, ev_type='dumb', 
+                             charging_power=ch_power,
                              arrival_departure_data_wd=adwd_LP,
                              arrival_departure_data_we=adwe_LP,
                              **params)
@@ -115,7 +111,8 @@ for i, ev in evs.items():
         e.dist_we = evs['small_s'][j].dist_we
         e.dist_wd = evs['small_s'][j].dist_wd
     if '_ns' in i:
-        e.n_if_needed = alphs[j]
+        for j, e in enumerate(ev):
+            e.n_if_needed = alphs[j]
     
 grid.do_days()
 #grid.plot_ev_load(day_ini=7, days=14)
@@ -128,8 +125,7 @@ j = 0
 for c, ev in evs.items():
     print(c, ':\t', round(grid.ev_load[c].max()*1000/n_evs,2), 'kW/EV,\t',  datas['Avg_plug_in_ratio'][j]*7, 'charging sessions/week')
     j +=1
-#%%
-# Do fleets:
+#%% Do fleets:
 av_window = [0, 24] 
 aw_s = str(av_window[0]) + '_' + str(av_window[1])
 if ovn:
@@ -164,26 +160,7 @@ for s in sets:
     ch_fleets[s] = fch
     print(s, fch.max().max().max())
 
-#NUM_COLORS = 6
-#cm = plt.get_cmap('Paired')
-#colors = [cm(1.*(i*2+1)/(NUM_COLORS*2)) for i in range(NUM_COLORS)]
-#
-#
-#
-#f,ax = plt.subplots()
-#for i, s in enumerate(sets):
-#    ax.plot(x,ch_fleets[s].mean(axis=0), color=colors[i], label='Charging ' + s)
-#    ax.fill_between(x, ch_fleets[s][int(k*nd*conf-1)], 
-#                    ch_fleets[s][int(k*nd*(1-conf))],
-#                    alpha=0.1, color=colors[i], label='_90% range')
-#
-#plt.xlim(0,24)
-#plt.ylim(0,120)
-#plt.xlabel('Time [h]')
-#plt.ylabel('Power [kW]')
-#plt.xticks(xticks, (xticks-12)%24)
-#plt.grid('--', alpha=0.5)
-#plt.legend()
+
 
 #%% Plot in three plots:
 
@@ -204,6 +181,8 @@ conf = 1
 ls=['--','-']
 
 mf = [[1,1],[1,.98],[1,.95]]
+
+ymax = np.round(fleet_size * ch_power * 0.6/10,0)*10
 for i, ax in enumerate(axs):
     plt.sca(ax)
     for j in range(2):
@@ -212,13 +191,14 @@ for i, ax in enumerate(axs):
         plt.fill_between(x, ch_fleets[sets_n[i][j]][int(k*nd*conf-1)]*mf[i][j], 
                     ch_fleets[sets_n[i][j]][int(k*nd*(1-conf))],
                     alpha=0.1, color=colors[j], label='_90% range')
-    plt.xlim(0,23)
-    plt.ylim(0,70)
+    plt.ylim(0,ymax)
     plt.xlabel('Time [h]')
     plt.ylabel('Power [kW]')
-    plt.text(1,65, texts[i], fontweight='bold')
+    plt.text(1,ymax*0.9, texts[i], fontweight='bold')
     plt.xticks(xticks, (xticks-12)%24)
     plt.grid('--', alpha=0.5)
+    plt.xlim(0,max(x))
+    
 f.set_size_inches(11,4.76)   
 f.tight_layout()
 f.legend(ncol=2, loc=8)
@@ -232,7 +212,8 @@ plt.savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_3plots_v2.
 plt.savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_3plots_v2.png'.format(fleet_size))
 
 
-#%% Do all combinationst = []
+#%% Do all combinations of systematic & non syst  + batt sizes:: PARAMS
+t = []
 t.append(time.time())
 # Case 1 : Company fleet IN-BUILDING
     # This means they will charge during the night
@@ -302,11 +283,12 @@ nweeks = 20
 ndays = 7 * nweeks  # 50 weeks, + one extra day
 step = 30 # minutes
 
-# DO SIMULATIONS (takes about 1-2min)
+# DO SIMULATIONS (takes about 5min)
 grid = EVmodel.Grid(ndays=ndays, step=step, verbose=False)
 evs = {}
 for name, params in ev_params.items():
-    evs[name] = grid.add_evs(nameset=name, n_evs=n_evs, ev_type='dumb',
+    evs[name] = grid.add_evs(nameset=name, n_evs=n_evs, ev_type='dumb', 
+                             charging_power=ch_power,
                              arrival_departure_data_wd=adwd_LP,
                              arrival_departure_data_we=adwe_LP,
                              **params)
@@ -319,12 +301,13 @@ for i, ev in evs.items():
         e.dist_we = evs['small_s'][j].dist_we
         e.dist_wd = evs['small_s'][j].dist_wd
     if '_ns' in i:
-        a1 = 1.31
-        if '_nsh' in i:
-            a1 = 3.34
-        if '_nsl' in i:
-            a1 = 0.5
-        e.n_if_needed = alphs[j]*a1/a0
+        for j, e in enumerate(ev):
+            a1 = 1.31
+            if '_nsh' in i:
+                a1 = 3.34
+            if '_nsl' in i:
+                a1 = 0.5
+            e.n_if_needed = alphs[j]*a1/a0
     
 grid.do_days()
 #grid.plot_ev_load(day_ini=7, days=14)
@@ -338,7 +321,7 @@ for c, ev in evs.items():
     print(c, ':\t', round(grid.ev_load[c].max()*1000/n_evs,2), 'kW/EV,\t',  datas['Avg_plug_in_ratio'][j]*7, 'charging sessions/week')
     j +=1
     
-#%%# Do fleets:
+#%%# Do charging profiles:
 av_window = [0, 24] 
 aw_s = str(av_window[0]) + '_' + str(av_window[1])
 if ovn:
@@ -360,20 +343,109 @@ for s in sets:
 #    fch[s], fdn[s] = fpf.get_fleet_profs(ch_profs[s], dn_profs[s], 
 #                                         nfleets=1, nevs_fleet=n_evs)
 
+#%% Do fleets of given size
+
+fleetsizes = [10,100,1000]
+nfleets = 500
+fs = []
+for fleet_size in fleetsizes:
+    ch_fleets = {}
+    for s in sets:
+        fch, _ = fpf.get_fleet_profs(ch_profs[s], dn_profs[s], nevs_fleet=fleet_size, nfleets=nfleets)
+        (k, nd, ns) = fch.shape
+        avgm = fch.max(axis=(1,2)).mean()
+        fch = np.reshape(fch, (k*nd,ns))
+        fch.sort(axis=0)
+        ch_fleets[s] = fch
+        print(fleet_size, s, ':\t', round(fch.max().max().max()), ':\t', round(avgm))
+        
+    # Plot everything in a 4x3 plot
+    f,axs= plt.subplots(4,3)
+    fs.append(f)
+    bb = [25,50,75]
+    aa = [0.5,1.31,3.34,10000]
+    sb = {25:'small',
+         50:'medium',
+         75:'large'}
+    sa = {0.5:'_nsl',
+          1.31:'_nsa',
+          3.34:'_nsh',
+          10000:'_s'}
+    
+    lb = {25:'25 kWh',
+         50:'50 kWh',
+         75:'75 kWh'}
+    la = {0.5:'Low plug-in',
+          1.31:'Average plug-in',
+          3.34:'High plug-in',
+          10000:'Systematic'}
+    
+    sets_n = [[sb[b] + sa[a] for b in bb] for a in aa]
+    labels = [[lb[b] + ', ' + la[a] for b in bb] for a in aa]
+    #texts = ['25 kWh', '50 kWh', '75 kWh']
+    colors=  ['b', 'r','g']
+    
+    
+    x = np.arange(0,24,step/60)
+    xticks = np.arange(0,25,4)
+    
+    conf = 1
+    
+    ls = [':','--','-.','-',]
+    
+    ymax = np.ceil((avgm*1.2)/10)*10+10
+    
+    
+    for i, axx in enumerate(axs):
+        for j, ax in enumerate(axx):
+            plt.sca(ax)
+            plt.plot(x, ch_fleets[sets_n[i][j]].mean(axis=0), color=colors[j],
+                     linestyle=ls[i])
+            plt.fill_between(x, ch_fleets[sets_n[i][j]][int(k*nd*conf-1)], 
+                        ch_fleets[sets_n[i][j]][int(k*nd*(1-conf))],
+                        alpha=0.1, color=colors[j], label='_90% range')
+            plt.xlabel('Time [h]')
+            plt.ylabel('Power [kW]')
+            plt.text(12,ymax*.9, labels[i][j], fontweight='bold', horizontalalignment='center')
+            plt.xticks(xticks, (xticks-12)%24)
+            plt.xlim(0,23.5)
+            plt.ylim(0,ymax)
+            plt.grid('--', alpha=0.5)
+    f.set_size_inches(11,4.76*4.5)   
+    f.tight_layout()
+#    plt.savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_all_v2.pdf'.format(fleet_size))
+#    plt.savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_all_v2.png'.format(fleet_size))
+for i in range(len(fs)):
+    fs[i].savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_all_v2.pdf'.format(fleetsizes[i]))
+    fs[i].savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_all_v2.png'.format(fleetsizes[i]))
 #%%
-fleet_size = 10
+f.tight_layout()
+#f.legend(ncol=2, loc=8)
+## resizing axs to leave space for legend
+#for i, ax in enumerate(axs):
+#    pos = ax.get_position()
+#    dy = 0.06
+#    ax.set_position([pos.x0, pos.y0+dy, pos.width, pos.height-dy])
+
+plt.savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_all_v2.pdf'.format(fleet_size))
+plt.savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_all_v2.png'.format(fleet_size))
+
+
+#%% Do fleets of various sizes
+fleet_sizes = [10,100,1000]
 nfleets = 500
 ch_fleets = {}
-for s in sets:
-    fch, _ = fpf.get_fleet_profs(ch_profs[s], dn_profs[s], nevs_fleet=fleet_size, nfleets=nfleets)
-    (k, nd, ns) = fch.shape
-    avgm = fch.max(axis=(1,2)).mean()
-    fch = np.reshape(fch, (k*nd,ns))
-    fch.sort(axis=0)
-    ch_fleets[s] = fch
-    print(s, ':\t', round(fch.max().max().max()), ':\t', round(avgm))
+for fs in fleet_sizes:
+    for s in sets:
+        fch, _ = fpf.get_fleet_profs(ch_profs[s], dn_profs[s], nevs_fleet=fs, nfleets=nfleets)
+        (k, nd, ns) = fch.shape
+        avgm = fch.max(axis=(1,2)).mean()
+        fch = np.reshape(fch, (k*nd,ns))
+        fch.sort(axis=0)
+        ch_fleets[fs, s] = fch/fs # fleet profiles per EV
+    print(fs, s, ':\t', round(fch.max().max().max()), ':\t', round(avgm))
     
-#%% Plot everything
+#%% Plot everything in a 4x3 plot
 f,axs= plt.subplots(4,3)
 
 bb = [25,50,75]
@@ -389,9 +461,9 @@ sa = {0.5:'_nsl',
 lb = {25:'25 kWh',
      50:'50 kWh',
      75:'75 kWh'}
-la = {0.5:'Low plug in',
-      1.31:'Average plug in',
-      3.34:'High plug in',
+la = {0.5:'Low plug-in',
+      1.31:'Average plug-in',
+      3.34:'High plug-in',
       10000:'Systematic'}
 
 sets_n = [[sb[b] + sa[a] for b in bb] for a in aa]
@@ -399,6 +471,7 @@ labels = [[lb[b] + ', ' + la[a] for b in bb] for a in aa]
 #texts = ['25 kWh', '50 kWh', '75 kWh']
 colors=  ['b', 'r','g']
 
+fleetsizes = [10,100,1000]
 
 x = np.arange(0,24,step/60)
 xticks = np.arange(0,25,4)
@@ -407,19 +480,20 @@ conf = 1
 
 ls = [':','--','-.','-',]
 
-ymax = np.ceil((avgm*1.2)/10)*10+10
+ymax = ch_power
 
 
 for i, axx in enumerate(axs):
     for j, ax in enumerate(axx):
         plt.sca(ax)
-        plt.plot(x, ch_fleets[sets_n[i][j]].mean(axis=0), color=colors[j],
-                 linestyle=ls[i])
-        plt.fill_between(x, ch_fleets[sets_n[i][j]][int(k*nd*conf-1)], 
-                    ch_fleets[sets_n[i][j]][int(k*nd*(1-conf))],
-                    alpha=0.1, color=colors[j], label='_90% range')
+        for m, fs in enumerate(fleetsizes):
+            plt.plot(x, ch_fleets[fs, sets_n[i][j]].mean(axis=0), color=colors[m],
+                     linestyle=ls[m], label='{} EVs'.format(fs))
+            plt.fill_between(x, ch_fleets[fs, sets_n[i][j]][int(k*nd*conf-1)], 
+                        ch_fleets[fs, sets_n[i][j]][int(k*nd*(1-conf))],
+                        alpha=0.1, color=colors[m], label='_90% range')
         plt.xlabel('Time [h]')
-        plt.ylabel('Power [kW]')
+        plt.ylabel('Power [kW/EV]')
         plt.text(12,ymax*.9, labels[i][j], fontweight='bold', horizontalalignment='center')
         plt.xticks(xticks, (xticks-12)%24)
         plt.xlim(0,23.5)
@@ -429,12 +503,13 @@ f.set_size_inches(11,4.76*4.5)
 f.tight_layout()
 #%%
 f.tight_layout()
-#f.legend(ncol=2, loc=8)
-## resizing axs to leave space for legend
-#for i, ax in enumerate(axs):
-#    pos = ax.get_position()
-#    dy = 0.06
-#    ax.set_position([pos.x0, pos.y0+dy, pos.width, pos.height-dy])
+f.legend(ncol=3, loc=8)
+# resizing axs to leave space for legend
+for i, axss in enumerate(axs):
+    for j, ax in enumerate(axss):
+        pos = ax.get_position()
+        dy = 0.006
+        ax.set_position([pos.x0, pos.y0+dy*(i+1), pos.width, pos.height-dy])
 
-plt.savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_all_v2.pdf'.format(fleet_size))
-plt.savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_all_v2.png'.format(fleet_size))
+plt.savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_all_v3.pdf'.format(fleetsizes))
+plt.savefig(r'c:\user\U546416\Pictures\PlugInModel\EVLoad\\' + '{}evs_all_v3.png'.format(fleetsizes))
