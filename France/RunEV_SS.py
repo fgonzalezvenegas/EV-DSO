@@ -1,7 +1,7 @@
     # -*- coding: utf-8 -*-
 """
 Created on Mon Mar 25 18:32:55 2019
-testestest
+testestest OLD
 @author: U546416
 """
 
@@ -113,14 +113,14 @@ general_params = dict(batt_size = batt_size)
 overnight_params = dict(arrival_departure_data_wd = arr_dep_data_h,
 #                        charging_power = charging_power_home,
                         charging_type = 'if_needed_weekend',
-                        n_if_needed = 1)
+                        alpha = 1)
 
 # day params
 day_params = dict(arrival_departure_data_wd = arr_dep_data_w,
                   arrival_departure_data_we = arr_dep_data_w,
 #                  charging_power = charging_power_work,
                   charging_type = 'weekdays+1',
-                  n_if_needed = 1,
+                  alpha = 1,
                   tou_we = False,
                   pmin_charger= 0.8)
 
