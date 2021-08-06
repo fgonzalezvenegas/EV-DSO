@@ -18,6 +18,10 @@ import util
 import flex_payment_funcs as fpf
 import pandas as pd
 
+font = {'size':8}
+plt.rc('font', **font)
+
+
 #%% 0 Params
 t = []
 t.append(time.time())
@@ -70,12 +74,15 @@ adwe_HP = dict(pdf_a_d=adwe_HP, bins=bins)
 n_proba_high=2  # This gives 5.5 plugs per week
 n_proba_low=0.15 #Approx factor to get a median of 2.5 times plug in ratio, w/ 40kWh & O.Borne data
 
-commuter_params_LP = dict(arrival_departure_data_wd=adwd_LP,
-                          arrival_departure_data_we=adwe_LP,
-                          n_if_needed=n_proba_low)
-commuter_params_HP = dict(arrival_departure_data_wd=adwd_HP,
-                          arrival_departure_data_we=adwe_HP,
-                          n_if_needed=n_proba_high)
+commuter_params_LP = dict(arrival_departure_data={'wd':adwd_LP,
+                                                  'we':adwe_LP},
+                          alpha=n_proba_low)
+commuter_params_HP = dict(arrival_departure_data={'wd':adwd_HP,
+                                                  'we':adwe_HP},
+                          alpha=n_proba_high)
+commuter_params_always = dict(arrival_departure_data={'wd':adwd_HP,
+                                                  'we':adwe_HP},
+                          alpha=10000)
               
 # Data for Company fleet.
 # Using data from Parker project - Forsyning.
@@ -109,15 +116,15 @@ ad_comp = ad_comp/ad_comp.sum()
 #plt.plot(bins, energy)
 #plt.plot(bins/0.4, dist)
 
-company_params = dict(arrival_departure_data_we=dict(pdf_a_d=ad_comp,
+company_params = dict(arrival_departure_data = {'wd': dict(pdf_a_d=ad_comp,
                                                      bins=bins),
-                      arrival_departure_data_wd=dict(mu_arr=15, mu_dep=9,
-                                                     std_arr=1, std_dep=1),
+                                                'we': dict(mu_arr=15, mu_dep=9,
+                                                     std_arr=1, std_dep=1)},
                       dist_wd=dict(loc=0, s=0.79, scale=np.exp(1.44)/0.4),
                       dist_we=dict(cdf=sts.norm.cdf(np.arange(1,100,2), 
                                                       loc=0.01, 
                                                       scale=0.0005)),
-                      n_if_needed=100  #100, always, 0, never,                      
+                      alpha=100  #100, always, 0, never,                      
                       )
 t = []
 t.append(time.time())
@@ -155,6 +162,11 @@ grid.add_evs(nameset='Commuter_LP', n_evs=n_evs, ev_type='dumb',
              flex_time=service_time,
              **general_params,
              **commuter_params_LP)
+grid.add_evs(nameset='Commuter_AP', n_evs=n_evs, ev_type='dumb', 
+             flex_time=service_time,
+             **general_params,
+             **commuter_params_always)
+
 for i, ev in enumerate(grid.evs_sets['Commuter_LP']):
     grid.evs_sets['Commuter_HP'][i].dist_we = ev.dist_we
     grid.evs_sets['Commuter_HP'][i].dist_wd = ev.dist_wd
@@ -197,6 +209,7 @@ xticks = np.arange(0,25,4)
 NUM_COLORS = 6
 cm = plt.get_cmap('Paired')
 colors = [cm(1.*(i*2+1)/(NUM_COLORS*2)) for i in range(NUM_COLORS)]
+colors = [colors[0], colors[2], colors[1], colors[3],]
 
 (k, nd, ns) = fch[s].shape
 
@@ -216,6 +229,8 @@ plt.grid('--', alpha=0.5)
 plt.axvspan(5,8, color='yellow', alpha=0.3, label='Evening window')
 plt.legend()
 #%% Avg profs with V2G potential
+#colors = [colors[0], colors[2], colors[1]]
+sets = ['Company', 'Commuter_HP', 'Commuter_LP']
 sets_str = [s.replace('_', ' ') for s in sets]
 mrks = ['x','','o']
 mrksize = [4,0,3]
@@ -254,6 +269,11 @@ yp1 = [fch['Company'][0].mean(axis=0)[idxp1], fdn['Company'][0][0].mean(axis=0)[
 yp2 = [fch['Commuter_HP'][0].mean(axis=0)[idxp2], 0]
 
 plt.annotate('', xy=((p1-12)%24, yp1[0]), xytext=((p1-12)%24, yp1[1]), arrowprops=dict(arrowstyle='<->'))
-plt.text(x=(p1+0.5-12)%24,y=-175,s='V2G Flexibility of Company fleet')
+plt.text(x=(p1+0.5-12)%24,y=-185,s='V2G Flexibility of Company fleet')
 plt.annotate('', xy=((p2-12)%24, yp2[0]), xytext=((p2-12)%24, yp2[1]), arrowprops=dict(arrowstyle='<->', color='k'), zorder=10)
 plt.text(x=(p2-12-0.5)%24,y=-20,s='V1G Flexibility of Commuter fleet')
+f.set_size_inches(5,3.5)
+plt.tight_layout()
+#%%
+plt.savefig(r'c:\user\U546416\Pictures\FlexTenders\EnergyPolicy\FlexProfiles_v3th.pdf')
+plt.savefig(r'c:\user\U546416\Pictures\FlexTenders\EnergyPolicy\FlexProfiles_v3th.png', dpi=300)

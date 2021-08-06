@@ -32,7 +32,7 @@ ovn=True
 
 # FLEET PARAMS
 batt_size = 50
-ch_power = 11
+ch_power = 7
 
 t.append(time.time())                            
 print('Loaded params, t={:.2f} seg'.format(t[-1]-t[-2]))  
@@ -68,13 +68,18 @@ adwd_HP = dict(pdf_a_d=adwd_HP, bins=bins)
 adwe_HP = dict(pdf_a_d=adwe_HP, bins=bins)
 
 n_proba_high=2  # This gives 5.5 plugs per week
-n_proba_low=0.15 #Approx factor to get a median of 2.5 times plug in ratio, w/ 40kWh & O.Borne data
+n_proba_low=0.15 #Approx factor to get a median of 2. times plug in ratio, w/ 50kWh & O.Borne data (2.5 w 40kWh?)
+n_proba_EN=0.31 #Approx factor to get a median of 2.73 times plug in ratio, w/ 50kWh & O.Borne data (Electric nation calibration)
+#### Why so different!!! =>>> Bcs i wasnt using the correct driving efficiency (0.185 vs 0.2 as default)
 
-commuter_params_LP = dict(arrival_departure_data_wd=adwd_LP,
-                          arrival_departure_data_we=adwe_LP,
+commuter_params_LP = dict(arrival_departure_data = {'wd':adwd_LP,
+                                                  'we':adwe_LP},
                           n_if_needed=n_proba_low)
-commuter_params_HP = dict(arrival_departure_data_wd=adwd_HP,
-                          arrival_departure_data_we=adwe_HP,
+commuter_params_EN = dict(arrival_departure_data = {'wd':adwd_HP,
+                                                  'we':adwe_HP},
+                          n_if_needed=n_proba_low)
+commuter_params_HP = dict(arrival_departure_data={'wd':adwd_HP,
+                                                  'we':adwe_HP},
                           n_if_needed=n_proba_high)
               
 # Data for Company fleet.
@@ -109,10 +114,10 @@ ad_comp = ad_comp/ad_comp.sum()
 #plt.plot(bins, energy)
 #plt.plot(bins/0.4, dist)
 
-company_params = dict(arrival_departure_data_we=dict(pdf_a_d=ad_comp,
+company_params = dict(arrival_departure_data= {'wd' : dict(pdf_a_d=ad_comp,
                                                      bins=bins),
-                      arrival_departure_data_wd=dict(mu_arr=15, mu_dep=9,
-                                                     std_arr=1, std_dep=1),
+                                               'we' : dict(mu_arr=15, mu_dep=9,
+                                                     std_arr=1, std_dep=1)},
                       dist_wd=dict(loc=0, s=0.79, scale=np.exp(1.44)/0.4),
                       dist_we=dict(cdf=sts.norm.cdf(np.arange(1,100,2), 
                                                       loc=0.01, 
@@ -196,10 +201,10 @@ nevents = [2, 10]
 cols = [j + '_' + k for j in ['Bids', 'Payments', 'UnderDel'] for k in ['Avg', 'min', 'max', 'perc_h', 'perc_l', 'CVaR']]
 
 ##%% Save data
-folder = r'C:\Users\u546416\AnacondaProjects\EV-DSO\FlexTenders\EnergyPolicy\11kw\\'
+folder = r'C:\Users\u546416\AnacondaProjects\EV-DSO\FlexTenders\EnergyPolicy\RandAlpha\\'
 filehead = 'full_extrapenalties_'
 
-for s in ['Commuter_LP', 'Commuter_HP', 'Company']:
+for s in ['Commuter_EN', 'Commuter_LP', 'Commuter_HP', 'Company']:
     print(s)
     t.append(time.time())             
     # SIMS PARAMS:
@@ -211,20 +216,34 @@ for s in ['Commuter_LP', 'Commuter_HP', 'Company']:
     grid = EVmodel.Grid(ndays=ndays, step=step, verbose=False)
 
     if s == 'Commuter_HP':
-        grid.add_evs(nameset='Commuter_HP', n_evs=n_evs, ev_type='dumb', 
+        evs = grid.add_evs(nameset=s, n_evs=n_evs, ev_type='dumb', 
                      flex_time=service_time,
                      **general_params,
                      **commuter_params_HP)
-    if s == 'Company':
-        grid.add_evs(nameset='Company', n_evs=n_evs, ev_type='dumb', 
-                 flex_time=service_time,
-                 **general_params,
-                 **company_params)
+        alphs = np.random.lognormal(mean=np.log(n_proba_high), sigma=1, size=n_evs)
+        for i, ev in enumerate(evs):
+            ev.n_if_needed = alphs[i]
     if s == 'Commuter_LP':
-        grid.add_evs(nameset='Commuter_LP', n_evs=n_evs, ev_type='dumb', 
+        evs = grid.add_evs(nameset=s, n_evs=n_evs, ev_type='dumb', 
                      flex_time=service_time,
                      **general_params,
                      **commuter_params_LP)
+        alphs = np.random.lognormal(mean=np.log(n_proba_low), sigma=1, size=n_evs)
+        for i, ev in enumerate(evs):
+            ev.n_if_needed = alphs[i]
+    if s == 'Commuter_EN':
+        evs = grid.add_evs(nameset=s, n_evs=n_evs, ev_type='dumb', 
+                     flex_time=service_time,
+                     **general_params,
+                     **commuter_params_EN)
+        alphs = np.random.lognormal(mean=np.log(n_proba_EN), sigma=1, size=n_evs)
+        for i, ev in enumerate(evs):
+            ev.n_if_needed = alphs[i]
+    if s == 'Company':
+        grid.add_evs(nameset=s, n_evs=n_evs, ev_type='dumb', 
+                 flex_time=service_time,
+                 **general_params,
+                 **company_params)
     grid.do_days()
 #    grid.plot_ev_load(day_ini=7, days=14)
 #    grid.plot_flex_pot(day_ini=7, days=14)

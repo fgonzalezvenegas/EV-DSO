@@ -274,7 +274,7 @@ grid.add_evs(nameset=nameset, n_evs=n_evs, ev_type='dumb',
              ovn=ovn,
              charging_power=ch_power,
              batt_size=batt_size,
-             n_if_needed=n_plugin_proba,
+             alpha=n_plugin_proba,
              up_dn_flex=True,
              flex_time=service_time
              )
@@ -550,7 +550,7 @@ ev_data = {'charging_power' : 7.2,
            'arrival_departure_data_we' : {'mu_arr':7, 'mu_dep':6.95,
                                           'std_arr':0, 'std_dep':0},
            'dist_wd' : {'cdf': cdf, 'bins' : np.linspace(0,100,101)},
-           'n_if_needed' : 0}
+           'alpha' : 0}
 
 grid = evmodel.Grid(ndays=ndays, step=step, name='Grid', verbose=False)
 grid.add_evs(nameset='Std', n_evs=1000, ev_type='dumb', **ev_data)

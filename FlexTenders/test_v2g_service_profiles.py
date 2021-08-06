@@ -14,7 +14,7 @@ util.self_reload(EVmodel)
 import EVmodel
 
 grid = EVmodel.Grid(ndays=3, step=1)
-grid.add_evs('', 1, 'dumb', n_if_needed=1000, up_dn_flex=True, target_soc = 1)
+grid.add_evs('', 1, 'dumb', alpha=1000, up_dn_flex=True, target_soc = 1)
 
 grid.evs[''][0].dist_wd = 20
 grid.do_days()
@@ -36,7 +36,7 @@ util.self_reload(EVmodel)
 import EVmodel
 
 grid = EVmodel.Grid(ndays=3, step=1)
-grid.add_evs('', 1, 'dumb', n_if_needed=1000, up_dn_flex=True, target_soc = 1, flex_time=180)
+grid.add_evs('', 1, 'dumb', alpha=1000, up_dn_flex=True, target_soc = 1, flex_time=180)
 
 grid.evs[''][0].dist_wd = 20
 grid.do_days()

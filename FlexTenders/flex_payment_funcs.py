@@ -223,18 +223,18 @@ def compute_payments(flex, av_payment, ut_payment,
     nconf = int((1-conf) * nsteps * ndays)
     flex_bid = np.sort(flex.reshape((nfleets, ndays*nsteps)), axis=1)[:, nconf]
     
-    # Cut bids under minimum bid
+    # Cut bids under minimum bid threshold
     flex_bid = flex_bid * (flex_bid > min_bid)
     
     # evaluate delivery
     d = np.random.randint(0, ndays, (nscenarios, nevents))
     t = np.random.randint(0, nsteps, (nscenarios, nevents))
     
-    flex_delivery  = flex[:,d,t]
+    flex_delivery  = flex[:,d,t] # flex at t activations events
     
     # Payments:
     # To simplify. Payment on energy + reduction of av payment on delivered energy / contracted energy.
-    #  If delivers/contracted < 0.6, no payment 
+    #  If delivers/contracted < threshold, no payment 
 
     flex_delivery_pu = flex_delivery / np.tile(flex_bid, (nevents, nscenarios, 1)).T
     flex_delivery_pu = (flex_delivery_pu).clip(max=1) * (flex_delivery_pu > min_delivery)
