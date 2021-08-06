@@ -44,7 +44,7 @@ latlons_fr = [[2.3424567382662334, 48.859626443036575],
          [-1.5448118357936005, 47.227505954238453],
          [2.98834511866088, 50.651686273910592],
          [-1.6966383042920521, 48.083113659214533],
-         [7.748341, 48.584826]]
+         [7.648341, 48.584826]]
 
 # Global params
 consos = ['Conso_RES', 'Conso_PRO', 'Conso_Agriculture', 'Conso_Industrie', 'Conso_Tertiaire']
@@ -100,7 +100,7 @@ def plot_segments(segments, ax='', loop=True, ends=False, **kwargs):
     return ax
 
 def plot_arr_dep_hist(hist, binsh=np.arange(0,24.5,0.5), ftitle=''):
-    """ Plots arrival and departure histogram
+    """ Plots arrival and departure histogramf
     """
     f, (ax, ax2) = plt.subplots(1,2)
     i = ax.imshow(hist.T/hist.sum().sum(), origin='lower', extent=(0,24,0,24))
@@ -125,6 +125,7 @@ def plot_arr_dep_hist(hist, binsh=np.arange(0,24.5,0.5), ftitle=''):
     ax2.grid()
     f.suptitle(ftitle)
     f.set_size_inches(11.92,4.43)
+    return f
 
 def length_segment_WGS84(segment, unit='m'):
     """ Returns the length in meters of a segment
@@ -221,7 +222,7 @@ def compute_load_from_ss(energydata, profiledata, ss):
     
     return (profiledata[profiles] * factors * mwhy_to_mw).sum(axis=1)
 
-def aspect_carte_france(ax, title='', palette=None,
+def aspect_carte_france(ax, title=None, palette=None,
                        labels=None,
                         cns='France', latlons='', delta_cns=0.2):
 #    if palette==None:
@@ -236,18 +237,25 @@ def aspect_carte_france(ax, title='', palette=None,
         cns = cns_idf
         latlons = latlons_idf
         delta_cns=0
-        
-    ax.set_title(title)
-    ax.autoscale()
+    if not(title is None):
+        ax.set_title(title)
+#    ax.autoscale()
     a = ax.axis()
+    print(a)
     ax.set_aspect(compute_aspect_carte(*a))
+    plt.sca(ax)
     # Do labels
     if labels != None:
         do_labels(labels, palette, ax)
     # Write the name of some cities
-    for i in range(len(cns)):
-        ax.text(latlons[i][0],latlons[i][1]+delta_cns, cns[i], ha='center',
-           path_effects=[pe.withStroke(linewidth=2, foreground='w')])
+    if not(cns is None):
+        for i in range(len(cns)):
+            ax.text(latlons[i][0],latlons[i][1]+delta_cns, cns[i], ha='center',
+               path_effects=[pe.withStroke(linewidth=2, foreground='w')])
+    plt.tick_params(left=False,
+                bottom=False,
+                labelleft=False,
+                labelbottom=False)
 
 def do_labels(labels, palette, ax, f=None):
     a = ax.axis()
@@ -360,19 +368,6 @@ def compute_pith_dist(latlon1, latlon2):
     y = deltaLatLon[0]
     return radius*np.sqrt(x*x + y*y)
 
-def compute_pith_dist(latlon1, latlon2):
-    """Computes pythagorean distance between 2 points (need to be np.arrays) (baaad)
-    """
-    if type(latlon1) == list:
-        latlon1 = np.array(latlon1)
-        latlon2 = np.array(latlon2)
-    radius=6371
-    latlon1 = latlon1 * np.pi/180
-    latlon2 = latlon2 * np.pi/180
-    deltaLatLon = (latlon2-latlon1)
-    x = deltaLatLon[1] * np.cos((latlon1[0]+latlon2[0])/2)
-    y = deltaLatLon[0]
-    return radius*np.sqrt(x*x + y*y)
 
 def haversine(coord1: object, coord2: object):
     """ Computes distance using Haversine function (goood)
@@ -405,9 +400,9 @@ def compute_aspect_carte(lon1, lon2, lat1, lat2):
     """ Sets the ratio of height/width for WGPS-based maps
     """   
     lat0, lon0 = (lat1+lat2)/2, (lon1+lon2)/2
-    km_per_lat = haversine([lat1, lon0], [lat2, lon0]) / abs(lat1-lat2)
-    km_per_lon = haversine([lat0, lon1], [lat0, lon2]) / abs(lon1-lon2)
-    return km_per_lat / km_per_lon
+    km_per_lat = haversine([lon0, lat1], [lat0, lat2]) / abs(lat1-lat2)
+    km_per_lon = haversine([lon1, lat0], [lon2, lat0]) / abs(lon1-lon2)
+    return km_per_lon / km_per_lat
 
 def create_folder(path, *folders):
     """ Creates folder in given path
@@ -435,3 +430,29 @@ def area(p):
 
 def diff_segments(p):
     return zip(p, p[1:] + [p[0]])
+
+def charging_sessions(grid, key=None, stats=True):
+    # compute hist
+    nsessions = np.asarray([ev.ch_status.sum() + (ev.extra_energy > 0).sum()
+                            for ev in grid.get_evs(key)])/grid.ndays * 7
+    h_bins = np.append(np.arange(0,8,1), 100)
+    hs = np.histogram(nsessions, h_bins)
+    if stats:
+        return hs[0]/sum(hs[0]), np.mean(nsessions), np.median(nsessions)   
+    return hs[0]/sum(hs[0])
+
+def charging_sessions_perc(grid, key=None, perc=[0,10,90,100]):
+    # compute hist
+    nsessions = np.asarray([ev.ch_status.sum() + (ev.extra_energy > 0).sum()
+                            for ev in grid.get_evs(key)])/grid.ndays * 7
+    return np.percentile(nsessions, perc)
+
+def peak_to_series_and_save(peak, namesave='peakload.csv', 
+                            name='Peak_load', 
+                            indexnames=['Batt_size', 'Charger_power', 'alpha', 'fleet_size']):
+    peak = pd.Series(peak)
+    peak.index.names = indexnames
+    peak.name = name
+    peak.to_csv(folder_outputs + namesave, header=True)
+    print('Saved data {}'.format(namesave))
+    return peak
