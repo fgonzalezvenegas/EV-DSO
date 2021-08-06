@@ -11,7 +11,7 @@ Created on Tue Feb 26 11:48:38 2019
 #import numpy as np
 from matplotlib import pyplot as plt
 import pandas as pd
-#import mobility as mb
+import mobility as mb
 import numpy as np
 
 
@@ -35,7 +35,8 @@ Tgeo = Tgeo[(Tgeo.Status != 'X') & (Tgeo.Dep != '97') & (Tgeo.Dep != '2A') & (Tg
 #%% Init histograms of distribution of distances per commune
 indexes = ['CODE', 'ZE', 'Dep', 'UU', 'Status']
 Tdreal = pd.read_csv(folder + input_Tdreal, engine='python', index_col=indexes)
-Thome = pd.read_csv(folder + input_Thome, engine='python', index_col='CODE')
+#Thome = pd.read_csv(folder + input_Thome, engine='python', index_col='CODE')
+Thome = pd.read_csv(folder + input_Thome, engine='python', index_col=indexes)
 Twork = pd.read_csv(folder + input_Twork, engine='python', index_col=indexes)
 
 ## Init conso data
@@ -72,6 +73,38 @@ ax1.set_title('Habitant à ZE Paris \n n=%8.0f' % Thome.sum(level='ZE').loc[ZE].
 mb.plotDist(x,Twork.sum(level='ZE').loc[ZE],ax2)
 ax2.set_title('Travaillant à ZE Paris \n n=%8.0f' % Twork.sum(level='ZE').loc[ZE].sum())
 
+#%% Plot for one Paris intramuros - Thesis
+idxs = [75101 + i for i in range(20)]
+
+f2, (ax1, ax2) = plt.subplots(1, 2, sharey=True)
+
+bins = np.array([1 + i*2 for i in range(50)])
+hh = Thome.loc[idxs].sum()  
+hw = Twork.loc[idxs].sum()
+mh = (hh*bins).sum()/sum(hh)*2
+mw = (hw*bins).sum()/sum(hw)*2
+
+ax1.bar(bins*2, hh, width=2)
+ax1.axvline(x=mh, color='red')
+ax1.text(mh+2, plt.ylim()[1]*0.7, 'Mean= %2.1fkm' %mh)
+ax1.set_xlabel('Distance [km]')
+ax1.set_title('(a) Residents of Paris', y=-0.26)
+ax2.bar(bins*2, hw, width=2)
+ax2.axvline(x=mw, color='red')
+ax2.text(mw+2, plt.ylim()[1]*0.7, 'Mean= %2.1fkm' %mw)
+ax2.set_xlabel('Distance [km]')
+ax2.set_title('(b) Workers of Paris', y=-0.26)
+
+ax1.set_ylabel('Frequency')
+plt.sca(ax1)
+plt.yticks([10000 * i for i in range(5)], [0] + [str(10*i)+ 'k'  for i in range(1,5)])
+
+f2.set_size_inches(7,3)
+
+plt.tight_layout()
+
+plt.savefig(r'c:\user\U546416\Pictures\DataMobilité\DataDistance\Paris_hist.pdf')
+plt.savefig(r'c:\user\U546416\Pictures\DataMobilité\DataDistance\Paris_hist.png')
 #%%
 # Plot for the UU
 Thuu = Thome.sum(level='UU')
