@@ -20,13 +20,13 @@ class VoltVar(ppc.basic_controller.Controller):
     Q(1-deadband<V<1+deadband) = 0
     """
     def __init__(self, net, gid, 
-                 vmin=0.95, vmax=1.05, deadband=0.02, 
-                 qmin_pu=-0.4, qmax_pu=+0.4, in_service=True,
-                 tolerance=0.01,
+                 vmin=0.96, vmax=1.045, deadband=0.03, 
+                 qmin_pu=-0.4, qmax_pu=+0.5, in_service=True,
+                 tolerance=0.01, alpha=0.7,
                  recycle=False, order=0, level=0, **kwargs):
         super().__init__(net, in_service=in_service, recycle=recycle, order=order, level=level,
                     initial_powerflow = True, **kwargs)
-        
+        # Note: we set default values according to Enedis standards
         # read generator attributes from net
         self.gid = gid  # index of the controlled generator
         self.bus = net.sgen.at[gid, "bus"]
@@ -40,29 +40,31 @@ class VoltVar(ppc.basic_controller.Controller):
         self.gen_type = net.sgen.at[gid, "type"]
         self.in_service = net.sgen.at[gid, "in_service"]
         self.applied = False
+        self.alpha = alpha
 
         # profile attributes
-        self.vmin = vmin
-        self.vmax = vmax
-        self.qmin = qmin_pu
-        self.qmax = qmax_pu
-        self.deadband = deadband
-        self.m_vmin = qmax_pu / (vmin-(1-deadband)) 
-        self.m_vmax = qmin_pu / (vmax-(1+deadband)) 
+        self.vmin = vmin                            # V at which Q injection is max
+        self.vmax = vmax                            # V at which Q absorption is maximal
+        self.qmin = qmin_pu                         # Min Q (absorption, at Vmax) 
+        self.qmax = qmax_pu                         # Max Q injection (at vmin)
+        self.deadband = deadband                    # Symmetric deadband between 1+-deadband
+        self.m_vmin = qmax_pu / (vmin-(1-deadband)) # Slope of Q gain for undervoltages
+        self.m_vmax = qmin_pu / (vmax-(1+deadband)) # Slope of Q gain for overvoltages
         
-        self.tolerance = tolerance # in kW
+        self.tolerance = tolerance # in MW
         
         
-    def get_q_v(self):
+    def get_q_v(self,v=None):
         """ Returns the Q(V), given by the sections [vmin, 1-deadband], [1+- deadband], [1+deadband,vmax]
         Q(V,P)
         Q(V) in pu
         """
+#        if v is None:
         v = self.net.res_bus.at[self.bus, 'vm_pu']
 #        p = self.net.res_sgen.at[self.gid, 'p_mw']
         if abs(v-1) <= self.deadband:
             return 0
-        if v < 1-self.deadband:
+        if v <= 1-self.deadband:
             return min(self.qmax, (v-(1-self.deadband)) * self.m_vmin)
         else:
             return max(self.qmin, (v-(1+self.deadband)) * self.m_vmax)
@@ -72,8 +74,12 @@ class VoltVar(ppc.basic_controller.Controller):
     def control_step(self):
         # Call write_to_net and set the applied variable True
         q_out = self.get_q_v() * self.sn_mva
-        # write q
-        self.net.sgen.at[self.gid, 'q_mvar'] = q_out
+        q0 = self.net.sgen.at[self.gid, 'q_mvar']
+        if self.net.res_bus.at[self.bus, 'vm_pu'] > self.vmax+0.01:
+            self.net.sgen.at[self.gid, 'q_mvar'] = q_out
+        else:
+            # write q
+            self.net.sgen.at[self.gid, 'q_mvar'] = (q_out * self.alpha) + (q0*(1-self.alpha))
     
     def is_converged(self):
         q_exp = self.get_q_v() * self.sn_mva
@@ -82,9 +88,63 @@ class VoltVar(ppc.basic_controller.Controller):
 #        print('q_control', q_control)
         return abs(q_exp - q_control) < self.tolerance
     
+#    def plot_law(self):
+#        import matplotlib.pyplot as plt
+#        x = np.arange(self.vmin-0.01, self.vmax+0.01, 0.001)
+#        l = [self.get_q_v(v=v) for v in x]
+#        plt.plot(x,l)
+#        plt.axvline(self.vmin,color='k',linestyle='--', linewidth=1)
+#        plt.axvline(self.vmax,color='k',linestyle='--', linewidth=1)
+#        plt.axvline(1-self.deadband,color='k',linestyle='--', linewidth=1)
+#        plt.axvline(1+self.deadband,color='k',linestyle='--', linewidth=1)
+#        
+#        plt.xlabel('Voltage [pu]')
+#        plt.ylabel('Q [pu]')
+#        plt.tight_layout()
+#        plt.gcf().set_size_inches(3.5,3)
+    
 #%%    
 #import matplotlib.pyplot as plt
+##        
+#def get_q_v(v, deadband, qmax, qmin):
+#        """ Returns the Q(V), given by the sections [vmin, 1-deadband], [1+- deadband], [1+deadband,vmax]
+#        Q(V,P)
+#        Q(V) in pu
+#        """
+#        m_vmin = qmax / (vmin-(1-deadband))
+#        m_vmax = qmin / (vmax-(1+deadband))
+#        if abs(v-1) <= deadband:
+#            return 0
+#        if v <= 1-deadband:
+#            return min(qmax, (v-(1-deadband)) * m_vmin)
+#        else:
+#            return max(qmin, (v-(1+deadband)) * m_vmax)
 #
+## Plot regulation law:
+#vmin=0.96
+#vmax=1.045
+#deadband=0.03
+#qmin=-0.4
+#qmax=+0.5
+#x = np.arange(.94, 1.06,0.001)
+#
+#
+#l = [get_q_v(v, deadband, qmax, qmin) for v in x]  
+#plt.plot(x,l)
+#plt.axvline(vmin,color='grey',linestyle='--', linewidth=1)
+#plt.axvline(vmax,color='grey',linestyle='--', linewidth=1)
+#plt.axvline(1-deadband,color='grey',linestyle='--', linewidth=1)
+#plt.axvline(1+deadband,color='grey',linestyle='--', linewidth=1)
+#
+#plt.xlabel('Voltage [pu]')
+#plt.ylabel('Q [pu]')
+#
+#
+#plt.gcf().set_size_inches(3.5,3)    
+#plt.tight_layout()
+#plt.savefig(r'c:\user\U546416\Pictures\pandapower\voltvar.pdf')
+#plt.savefig(r'c:\user\U546416\Pictures\pandapower\voltvar.png',dpi=300)
+
 #net = pp.create_empty_network()
 #pp.create_bus(net, 20)
 #pp.create_bus(net, 20)

@@ -21,8 +21,68 @@ from matplotlib.collections import LineCollection, PatchCollection
 import matplotlib.patches as ptc
 #import polygons as pg
 import matplotlib.patheffects as pe
+from scipy.spatial import Voronoi
 
 import time
+
+
+
+def get_voronoi_polys(points):
+    # defines voronoi diagra
+    vor = Voronoi(points)
+    # index of point to region
+    point_to_cell_index = list(vor.point_region)
+    regions = vor.regions
+    vertices = vor.vertices
+    
+    # getting cells for each point, removing infinite vertice (-1)
+    voronoi_cells = [[vertices[vidx] for vidx in verts_r if vidx!=-1] for verts_r in regions]
+    # reordering
+    voronoi_cells = [voronoi_cells[i] for i in point_to_cell_index] 
+    # doing polys
+    polys = []
+    for cell in voronoi_cells:
+        polys.append(ptc.Polygon(cell))
+    return polys
+
+def plot_grid_volts_voronoi(net, lines=True, vmin=0.95, vmax=1.05, ax=None, dxy=0.1):
+    # plotting lines:
+    if ax is None:
+        f, ax= plt.subplots()
+    if lines:
+        plot_lines_loading(net, ax=ax)
+    # id bus ext_grid
+    bext = net.ext_grid.bus
+    # getting voronoi polys:
+    polys = get_voronoi_polys(net.bus_geodata[['x','y']].drop(bext, axis=0).values)
+    # computing colors
+    cmap = plt.get_cmap('coolwarm')
+    colors = cmap((net.res_bus.drop(bext, axis=0).vm_pu-vmin)/(vmax-vmin))
+    util.plot_polygons(polys, color=colors, ax=ax)
+    # centering on good area
+    x0 = net.bus_geodata.x.min() 
+    x1 = net.bus_geodata.x.max()
+    y0 = net.bus_geodata.y.min() 
+    y1 = net.bus_geodata.y.max()
+    plt.xlim(x0-(x1-x0)*dxy,x1+(x1-x0)*dxy)
+    plt.ylim(y0-(y1-y0)*dxy,y1+(y1-y0)*dxy)
+    plt.xticks([])
+    plt.yticks([])
+    return ax
+    
+def plot_lines_loading(net, ax=None, percent=True):
+    if ax is None:
+        f, ax= plt.subplots()
+    if percent:
+        key = 'loading_percent'
+        maxi=100
+    else:
+        key = 'pl_mw'
+        maxi = net.line.max_i_ka.max()
+    cmap = plt.get_cmap('jet')
+    colors = cmap(net.res_line[key]/maxi)
+    plot_lines(net.line_geodata, col='coords',ax=ax, color=colors, linewidth=1.5, alpha=1)
+    return ax
 
 def plot_v_profile(net, ax=None, vmin=0.95, vmax=1.05):
     """ Plots voltage profile of a Pandapower grid
@@ -277,7 +337,7 @@ class Profiler():
         return check
    
 class output_writer():
-    def __init__(self, net, outputfolder='', feeder_pq=True):
+    def __init__(self, net, outputfolder='', feeder_pq=True, line_loading=False):
         self.net = net
         self.res_v = {}
         self.res_line_load = {}
@@ -290,11 +350,14 @@ class output_writer():
         self.consolidated = False
         self.sgen_gen = {}
         self.feeder_pq = feeder_pq
+        self.line_loading = line_loading
         if self.feeder_pq:
             self.p_feeder = {}
             self.q_feeder = {}
             self.lines0 = net.line[net.line.from_bus==0].index
             self.feeder = [f[-3:] for f in net.line[net.line.from_bus==0].name]
+        if self.line_loading:
+            self.res_lines_pu = {}
         
     def get_results(self, ts):
         self.res_v[ts] = self.net.res_bus.vm_pu
@@ -308,6 +371,8 @@ class output_writer():
         if self.feeder_pq:
             self.p_feeder[ts] = self.net.res_line.p_from_mw[self.lines0]
             self.q_feeder[ts] = self.net.res_line.q_from_mvar[self.lines0]
+        if self.line_loading:
+            self.res_lines_pu[ts] = self.net.res_line.loading_percent
         
     def consolidate(self):
         self.res_v = pd.DataFrame(self.res_v).T
@@ -319,7 +384,9 @@ class output_writer():
         if self.feeder_pq:
             self.p_feeder = pd.DataFrame(self.p_feeder, index=self.feeder).T
             self.q_feeder = pd.DataFrame(self.q_feeder, index=self.feeder).T
-        
+        if self.line_loading:
+            self.res_lines_pu = pd.DataFrame(self.res_lines_pu).T
+            
     def save_results(self, outputfolder=None):
         if outputfolder is None:
             of = self.outputfolder
@@ -332,13 +399,14 @@ class output_writer():
         if self.feeder_pq:
             self.p_feeder.to_csv(of + r'/p_feeder.csv')
             self.q_feeder.to_csv(of + r'/q_feeder.csv')
-        
-
+        if self.line_loading:
+            self.res_lines_pu.to_csv(of + r'/line_loading.csv')
+            
 class Iterator():
-    def __init__(self, net,  profiler=None, ow=None, feeder_pq=False):
+    def __init__(self, net,  profiler=None, ow=None, feeder_pq=False, line_loading=False):
         self.net = net
         if ow is None:
-            self.ow = output_writer(net, feeder_pq=feeder_pq)
+            self.ow = output_writer(net, feeder_pq=feeder_pq, line_loading=line_loading)
         else:
             self.ow = ow
         if profiler is None:

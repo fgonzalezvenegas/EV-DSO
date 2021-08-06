@@ -70,7 +70,7 @@ profiles_all.drop(['ENT', 'NonAffecte'], axis=1, inplace=True)
 
 #%% Load pv data per departement
 folder_pv = r'c:\user\U546416\Documents\PhD\Data\Conso-Reseau\Réseau'
-dep_parc_prod = pd.read_csv(folder_pv + r'\parc-pv-departement.csv',
+dep_parc_prod = pd.read_csv(folder_pv + r'\parc-pv_departement_2021.csv',
                             engine='python', sep=',')
 pv_dep = dep_parc_prod.groupby(['DEP_CODE', 'TYPE_PV']).P_MW.sum()
 
@@ -150,7 +150,7 @@ if v in ['Y', 'y', True]:
     ies_reg = iris[iris.REGION_CODE == reg].index
     
     # PV growth factor
-    national_target = 35000 # MW of PV installed
+    national_target = 70000 # MW of PV installed
     current_pv = dep_parc_prod.P_MW.sum() * 1.2 # times 1.2 because i only have Enedis data
     growth = national_target / current_pv
     
@@ -159,7 +159,7 @@ if v in ['Y', 'y', True]:
     
     # RESIDENTIAL
     # Computing penetration of RES PV
-    pv_res_cap = 3 #kW
+    pv_res_cap = 4 #kW
     nb_res_reg = (iris.Nb_RES[ies_reg] * (100 - iris.Taux_logements_collectifs[ies_reg])/100).sum()
     RES_penetration = pv_reg[reg, 'home_rooftop'] / (pv_res_cap/1000 * nb_res_reg)
 
@@ -192,7 +192,7 @@ if v in ['Y', 'y', True]:
                           name='Comm_PV_', sgtype='Comm_PV')
     # Add solar farms
     # Target MW of solar farms based on ratio of Rural communes / total communes in the region
-    pv_farm_cap = 2 #MW
+    pv_farm_cap = 3 #MW
     # Number of rural communes in the region
     ncommunes_region = iris.loc[ies_reg][iris.IRIS_TYPE[ies_reg] == 'Z'].COMM_CODE.nunique()
     # We'll put the solar farms far from the center of the city, only in rural IRIS
@@ -231,7 +231,9 @@ for i in net_res.bus.iris.unique():
                                     net_res.sgen[(net_res.sgen.type == 'Farm_PV') & (net_res.sgen.bus.isin(bss))].p_mw.sum()] 
 conso_prod_iris = pd.DataFrame(conso_prod_iris, index=['Conso_MWh', 'PV_Home_MW','PV_Commercial_MW', 'PV_farm_MW']).T      
 
-# Plot installed PV per IRIS
+#%% Plot  interesting things about the grid
+
+# installed PV per IRIS
 pls = util.list_polygons(polys.Polygon, ies)
 f, axs = plt.subplots(1,3)
 cmap = plt.get_cmap('plasma')
