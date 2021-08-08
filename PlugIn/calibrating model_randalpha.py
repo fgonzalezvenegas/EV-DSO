@@ -5,9 +5,6 @@ Created on Sun Dec 27 05:26:24 2020
 @author: U546416
 """
 
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 
 import numpy as np
 import pandas as pd
@@ -116,10 +113,13 @@ df.to_csv(output_folder + 'ch_sessions_randalpha.csv')
 
 
 #%% Plot based on mean charging sessions
+
+df = pd.read_csv(output_folder + 'ch_sessions_randalpha.csv', index_col=0)
+
 alphas = {}
 for idx in batt.keys():
     plt.figure()
-    data = ch_sessions[idx, 'mean']
+    data = df[idx + '_mean']
     plt.plot(data.index, data, '-x', label='Mean - EV model')
     plt.gca().set_xscale('log')
 #    plt.plot(chsmean_test.index, chsmedian_test, label='median')
@@ -143,9 +143,11 @@ for idx in batt.keys():
     alphas['mean', idx] = xx
     
 #%%  Plot based on median charging sessions
+df = pd.read_csv(output_folder + 'ch_sessions_randalpha.csv', index_col=0)
+
 for idx in batt.keys():
     plt.figure()
-    data = ch_sessions[idx, 'median']
+    data = df[idx + '_median']
     plt.plot(data.index, data, '-x', label='Median - EV model')
     plt.gca().set_xscale('log')
 #    plt.plot(chsmean_test.index, chsmedian_test, label='median')
@@ -168,13 +170,15 @@ for idx in batt.keys():
     plt.legend()
     alphas['median', idx] = xx
 #%% One graph, mean   
-plt.figure()
+df = pd.read_csv(output_folder + 'ch_sessions_randalpha.csv', index_col=0)
+
+f=plt.figure()
 idxs = ['small', 'allevs40', 'big']
 strs = {'small':'Small', 'allevs40':'Average', 'big':'Large'}
 colors = ['darkblue', 'darkgreen', 'orange']
 for i, idx in enumerate(idxs):    
-    data = df[idx, 'mean']
-    plt.plot(data.index, data*7, '-', label='EV Model - {} BEVs'.format(strs[idx]), alpha=0.8, color=colors[i])
+    data = df[idx + '_mean']
+    plt.plot(data.index, data*7, '-', label='{} EVs'.format(strs[idx]), alpha=0.8, color=colors[i])
     plt.gca().set_xscale('log')
 #    plt.plot(chsmean_test.index, chsmedian_test, label='median')
     plt.xlabel(r'$\alpha$')
@@ -190,10 +194,13 @@ for i, idx in enumerate(idxs):
     yk = chsmean[idx]*7
 #    xx = x0 + dx * (yk-y0)/(y1-y0)
     xx = np.exp((np.log10(x0) + dx * (yk-y0)/(y1-y0)) / np.log10(np.e))
-    plt.plot(xx, yk, '*', color=colors[i], label='{} BEV '.format(strs[idx])+ r'$\alpha$' +  ': {:.2f}'.format(xx) )
+    plt.plot(xx, yk, '*', color=colors[i], label='{} EV '.format(strs[idx])+ r'$\alpha$' +  ': {:.2f}'.format(xx) )
     plt.axhline(y=yk, linestyle='--', color='grey', label='_', alpha=0.2)
     plt.axvline(x=xx, linestyle='--', color='grey',label='_', alpha=0.2)
     plt.legend()
+f.set_size_inches(3.5,2.8)
+f.tight_layout()
+
 #%%
 alphas = pd.DataFrame(alphas, index=['alpha']).T
 alphas.index.names = ['ind', 'case']
@@ -269,19 +276,22 @@ strs = {'small':'Small', 'allevs40':'Average', 'big':'Large'}
 
 colorsLR = {'big': 'orange', 'allevs40': 'darkgreen', 'small': 'darkblue'}
 f,ax = plt.subplots(1,2)
-f.set_size_inches(9,4) #(11,4.76)
+f.set_size_inches(7.47,3.3)#(9,4) #(11,4.76)
 
-n = 150
+n = 200
 a = 0.7
+mrkrsize = 10
 evpl = daily_dist[daily_dist.allevs40<120].iloc[0:n].index
+
 
 ax[0].set_title('(a)', y=-0.25)
 ax[1].set_title('(b)', y=-0.25)
 
+
 for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     color = cmap(batt[idx]/100)
     plt.sca(ax[0])
-    plt.scatter(ch_sessions[idx][evpl]*7, en_session[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=a)
+    plt.scatter(ch_sessions[idx][evpl]*7, en_session[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=a, s=mrkrsize)
     plt.xlabel('Weekly sessions')
     plt.ylabel('Charged energy per session [kWh]')
     plt.grid('--', alpha=0.5)
@@ -289,7 +299,7 @@ for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     plt.ylim(0,70)
     plt.legend()
     plt.sca(ax[1])
-    plt.scatter(ch_sessions[idx][evpl]*7, daily_dist[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=a)
+    plt.scatter(ch_sessions[idx][evpl]*7, daily_dist[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=a,s=mrkrsize)
     plt.xlabel('Weekly sessions')
     plt.ylabel('Daily distance [km]')
     plt.grid('--', alpha=0.5)
@@ -319,8 +329,8 @@ for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     f.tight_layout()
     
 v = 2 if n==150 else 1
-plt.savefig(folder_img + 'sed_Simu_fixedalpha_vsmall{}.png'.format(v))
-plt.savefig(folder_img + 'sed_Simu_fixedalpha_vsmall{}.pdf'.format(v))
+plt.savefig(folder_img + 'sed_Simu_fixedalpha_vpapersize{}.png'.format(v))
+plt.savefig(folder_img + 'sed_Simu_fixedalpha_vpapersize{}.pdf'.format(v))
 #%% Try grid with random alpha
     
     #### THIS IS WEIRDLY GOOOOOD ####
@@ -401,14 +411,15 @@ strs = {'small':'Small', 'allevs40':'Average', 'big':'Large'}
 
 colorsLR = {'big': 'orange', 'allevs40': 'darkgreen', 'small': 'darkblue'}
 f,ax = plt.subplots(1,2)
-f.set_size_inches(9,4) #(11,4.76)
+f.set_size_inches(7.47,3.3)#(9,4) #(11,4.76)
 
 
 ax[0].set_title('(a)', y=-0.25)
 ax[1].set_title('(b)', y=-0.25)
 
-n = 150
+n = 200
 a = 0.7
+mrkrsize = 10
 dmax = 140
 evpl = daily_dist[daily_dist.allevs40<dmax].iloc[0:n].index
 xs = [12,11,9]
@@ -417,7 +428,7 @@ ys = [70,110,140]
 for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     color = cmap(batt[idx]/100)
     plt.sca(ax[0])
-    plt.scatter(ch_sessions[idx][evpl]*7, en_session[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=a)
+    plt.scatter(ch_sessions[idx][evpl]*7, en_session[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=a, s=mrkrsize)
     plt.xlabel('Weekly sessions')
     plt.ylabel('Charged energy per session [kWh]')
     plt.grid('--', alpha=0.5)
@@ -425,7 +436,7 @@ for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     plt.ylim(0,70)
     plt.legend()
     plt.sca(ax[1])
-    plt.scatter(ch_sessions[idx][evpl]*7, daily_dist[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=a)
+    plt.scatter(ch_sessions[idx][evpl]*7, daily_dist[idx][evpl], color=color, label='{} BEVs'.format(strs[idx]), alpha=a, s=mrkrsize)
     plt.xlabel('Weekly sessions')
     plt.ylabel('Daily distance [km]')
     plt.grid('--', alpha=0.5)
@@ -452,5 +463,5 @@ for j, idx in enumerate(['small', 'allevs40', 'big' ]):
     f.tight_layout()
     
 v = 2 if n==150 else 1
-plt.savefig(folder_img + 'sed_Simu_randalpha_vsmall{}.png'.format(v))
-plt.savefig(folder_img + 'sed_Simu_randalpha_vsmall{}.pdf'.format(v))
+plt.savefig(folder_img + 'sed_Simu_randalpha_vpapersize{}.png'.format(v))
+plt.savefig(folder_img + 'sed_Simu_randalpha_vpapersize{}.pdf'.format(v))

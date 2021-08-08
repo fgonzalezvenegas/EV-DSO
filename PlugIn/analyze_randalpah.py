@@ -114,7 +114,7 @@ for a in hists.index.levels[0]:
     plt.savefig(folder_images + 'charging_sessions_alpha{}.png'.format(a))
     ax.set_title(r'Charging sessions per week (cumulated), $\alpha$ {}'.format(a))
 
-#%% Do one fig in 3 plots
+#%% Do hisogram of ch sessions, one fig in 3 plots
 hists = pd.read_csv(folder_outputs + 'hists_randalpha.csv', index_col=[0,1])
 stats = pd.read_csv(folder_outputs + 'stats_randalpha.csv', index_col=[0,1])
 
@@ -172,8 +172,9 @@ hhome = pd.read_csv(folder_hdata + r'\HistHomeModal.csv',
 #havg = (hhome * np.arange(1,101,2)).sum(axis=1)/hhome.sum(axis=1)
 #havg.dropna(inplace=True)
 idx = pd.IndexSlice
-# 
+# Rural communes of Seine et Marne (Paris peri urban areas)
 hrural = hhome.loc[idx[:,:,'R',:,77],:].sum(axis=0)/hhome.loc[idx[:,:,'R',:,77],:].sum().sum()
+# Urban communes of Paris
 hurban = hhome.loc[idx[:,:,'C',:,75],:].sum(axis=0)/hhome.loc[idx[:,:,'C',:,75],:].sum().sum()
 #if 'ZE' in hhome.columns:
 #    hhome = hhome.drop(['ZE', 'Status', 'UU', 'Dep'], axis=1)
@@ -257,6 +258,8 @@ titles = ['Urban', 'Average', 'Rural']
 f, axs = plt.subplots(1,3)
 labels=['{} to {} per week'.format(i,i+1) for i in range(7)]
 labels.append('More than 7')
+batts = np.arange(15,100.1,2.5)
+
 
 for i, ax in enumerate(axs):
     if i== 0:
@@ -296,6 +299,7 @@ cases = ['urban', 'base', 'rural']
 titles = ['Urban', 'Average', 'Rural']
 abc = ['(a)','(b)','(c)']
 f, axs = plt.subplots(1,3, sharey=True)
+batts = np.arange(15,100.1,2.5)
 
 percentiles = [5,15,25,50]#35,45]
 
@@ -364,8 +368,8 @@ for i, ax in enumerate(axs):
     dyu = 0.06
     dx = 0 #0.033
     ax.set_position([pos.x0-dx*i, pos.y0+dy, pos.width-dx, pos.height-dy-dyu])
-plt.savefig(folder_images + 'charging_sesions_urbanruralv2.pdf')
-plt.savefig(folder_images + 'charging_sesions_urbanruralv2.png')
+plt.savefig(folder_images + 'charging_sesions_urbanruralv3.pdf')
+plt.savefig(folder_images + 'charging_sesions_urbanruralv3.png')
 
     
 #%% Identifying peak load
@@ -905,13 +909,13 @@ for i, p in enumerate(pch):
         plt.plot(k.index.get_level_values('fleet_size'), k, 
                  linestyle=ls[j], label='{} kVA; {} kWh'.format(lkw[i],b),
                  color=colors[j + 3*i])
-plt.legend()
+plt.legend(fontsize=8)
 plt.xlabel('Fleet size')
 plt.ylabel('Power [kW/EV]')
 plt.xlim((1,10000))
 plt.ylim((0,12))
 plt.grid(linestyle='--', axis='x')
-ax.set_title('(a) Average plug-in behavior', y=-0.21)
+ax.set_title('(a) Average plug-in behavior', y=-0.25)
 
 # Vary all chargers, all alphas
 ax = axs[1]
@@ -933,21 +937,22 @@ for i, p in enumerate(pch):
         plt.plot(k.index.get_level_values('fleet_size'), k, 
                  linestyle=ls[j], label=r'{} kVA; {}'.format(lkw[i],labelalpha[j]),
                  color=colors[(j + 4*i)%9])
-plt.legend()
+plt.legend(fontsize=8)
 plt.xlabel('Fleet size')
 #plt.ylabel('Power [kW/EV]')
 plt.xlim((1,10000))
 plt.ylim((0,12))
 plt.grid(linestyle='--', axis='x')
-ax.set_title('(b) 50 kWh battery', y=-0.21)
+ax.set_title('(b) 50 kWh battery', y=-0.25)
 
     
-f.set_size_inches(11,4.76)    
+#f.set_size_inches(11,4.76)    
+f.set_size_inches(7.4, 3.3)  
 
 plt.tight_layout()
 folder_img = r'c:\user\U546416\Pictures\PlugInModel\Coincidence\Randalpha\\'
-plt.savefig(folder_img + 'peakload_v4_{}.png'.format(lvl))
-plt.savefig(folder_img + 'peakload_v4_{}.pdf'.format(lvl))
+#plt.savefig(folder_img + 'peakload_vpapersize_{}.png'.format(lvl))
+#plt.savefig(folder_img + 'peakload_vpapersize_{}.pdf'.format(lvl))
 
 #%% Plot peak load - paper format  : 2 figs; 3 plots
 lvl = '95_ToU' # 95, mean, 95_ToU, etc
@@ -995,7 +1000,7 @@ for i, p in enumerate(pch):
 
 f0.legend(ncol=ncol, loc=loclegend) # legend under plot
 #f0.legend(ncol=1, loc=5) # legend on the right
-f0.set_size_inches(9,4) # 11,4.76)   
+f0.set_size_inches(7.4, 3.3)  #9,4
 f0.tight_layout()
 
 # resizing axs to leave space for legend
@@ -1038,7 +1043,7 @@ for i, p in enumerate(pch):
     ax.set_title('({})  50 kWh battery \n     {} kVA charger'.format(defg[i], lkw[i]), y=yt)
         
 f1.legend(ncol=ncol, loc=loclegend)
-f1.set_size_inches(9,4) #11, 4.76)   
+f1.set_size_inches(7.4, 3.3)  #(9,4) #11, 4.76)   
 f1.tight_layout()
 
 # resizing axs to leave space for legend
@@ -1059,10 +1064,10 @@ for i, ax in enumerate(f1.axes):
     ax.set_position([pos.x0-(dx*i), pos.y0+dy, pos.width-dx, pos.height-dy-dyu])
     
 folder_img = r'c:\user\U546416\Pictures\PlugInModel\Coincidence\Randalpha\\'
-f0.savefig(folder_img + 'peakload_v5.1_{}.png'.format(lvl))
-f0.savefig(folder_img + 'peakload_v5.1_{}.pdf'.format(lvl))
-f1.savefig(folder_img + 'peakload_v5.2_{}.png'.format(lvl))
-f1.savefig(folder_img + 'peakload_v5.2_{}.pdf'.format(lvl))
+f0.savefig(folder_img + 'peakload_vpapersize_5.1_{}.png'.format(lvl))
+f0.savefig(folder_img + 'peakload_vpapersize_5.1_{}.pdf'.format(lvl))
+f1.savefig(folder_img + 'peakload_vpapersize_5.2_{}.png'.format(lvl))
+f1.savefig(folder_img + 'peakload_vpapersize_5.2_{}.pdf'.format(lvl))
 
 
 #%% Plot peak load Rural-Avg-Urban - paper format  : 2 figs; 3 plots
@@ -1381,8 +1386,8 @@ plt.grid(linestyle='--')
 #f.suptitle(r'$\alpha$={}'.format(a))
 plt.text(30, (j[30] + k[30])/2, 'Idle time')
 
-plt.savefig(folder_images + 'idletime_{}_v2.pdf'.format(case))
-plt.savefig(folder_images + 'idletime_{}_v2.png'.format(case))
+#plt.savefig(folder_images + 'idletime_{}_v2.pdf'.format(case))
+#plt.savefig(folder_images + 'idletime_{}_v2.png'.format(case))
 
 #%% Plot avg charging time per session -- Paper version
 
@@ -1401,20 +1406,20 @@ for i, p in enumerate(pch):
         j=dur_ch.loc[:,p,a]
         plt.plot(j.index, j, linestyle=ls[k],
                  label=r'{}'.format(labels[k]))
-    plt.plot(dur_ss.loc[:,p,a], '-.o', markersize=3, label='Charging session duration')
+    plt.plot(dur_ss.loc[:,p,a], '-.', markersize=3, label='Charging session duration')
 #    plt.legend(loc=1)
     plt.xlabel('Battery size [kWh]')
     if i==0:
         plt.ylabel('Hours')
     plt.xlim((15,100))
     plt.ylim((0,ylim))
-    plt.grid(linestyle='--')    
+    plt.grid(linestyle='--', axis='y')    
 
     plt.annotate('', xy=(xb_text, dur_ss.loc[xb_text,p,a]), 
                  xytext=(xb_text, dur_ch.loc[xb_text,p,0.5]), 
                  arrowprops=dict(arrowstyle='<-'))
     plt.text(x=xb_text,
-             y=(dur_ss.loc[xb_text,p,a]+ dur_ch.loc[xb_text,p,0.5])/2,
+             y=8.2,#(dur_ss.loc[xb_text,p,a]+ dur_ch.loc[xb_text,p,0.5])/2,
              s='  Flexible time',
              verticalalignment='center')
     plt.annotate('', xy=(xb_text,0), 
@@ -1427,7 +1432,7 @@ for i, p in enumerate(pch):
 #    plt.text(x=20,y=12.5,s='{} kVA charger'.format(lkw[i]), fontweight='bold')
     ax.set_title('({}) {} kVA charger'.format(abc[i], lkw[i]), y=-0.25)
 f.legend(ncol=5, loc=9)
-f.set_size_inches(9,4) #11,4.76)   
+f.set_size_inches(7.43,3.3) #(9,4) #11,4.76)   
 f.tight_layout()
 
 # resizing axs to leave space for legend
@@ -1444,8 +1449,8 @@ for i, ax in enumerate(axs):
     dy = 0.00
     dyu = 0.06
     ax.set_position([pos.x0, pos.y0+dy, pos.width, pos.height-dy-dyu])
-plt.savefig(folder_images + 'chargingtime{}_v4.pdf'.format(case))
-plt.savefig(folder_images + 'chargingtime{}_v4.png'.format(case))
+plt.savefig(folder_images + 'chargingtime{}_vpapersize.pdf'.format(case))
+plt.savefig(folder_images + 'chargingtime{}_vpapersize.png'.format(case))
 
 
 #%% Plot idle time per session - bcp de lignes
@@ -1465,8 +1470,8 @@ plt.xlim((15,100))
 plt.ylim((0,15))
 plt.grid(linestyle='--')    
 
-plt.savefig(folder_images + 'idletime_all{}_v2.pdf'.format(case))
-plt.savefig(folder_images + 'idletime_all{}_v2.png'.format(case))
+#plt.savefig(folder_images + 'idletime_all{}_v2.pdf'.format(case))
+#plt.savefig(folder_images + 'idletime_all{}_v2.png'.format(case))
 
 #%% Plot flex power (kW of connected EVs) -- Paper version
 
@@ -1490,11 +1495,11 @@ for i, p in enumerate(pch):
         plt.ylabel('Power [kW/EV]')
     plt.xlim((15,100))
     plt.ylim((0,12))
-    plt.grid(linestyle='--') 
+    plt.grid(linestyle='--', axis='y') 
 #    plt.text(x=20,y=11,s='{} kVA charger'.format(lkw[i]), fontweight='bold')
     ax.set_title('({}) {} kVA charger'.format(abc[i], lkw[i]), y=-0.25)
 f.legend(ncol=5, loc=9)
-f.set_size_inches(9,4) # (11,4.76)   
+f.set_size_inches(7.47,3.3)#(9,4) # (11,4.76)   
 #f.tight_layout()
 
 ## resizing axs to leave space for legend
@@ -1520,8 +1525,8 @@ for i, ax in enumerate(axs):
     dyu = 0.063
     ax.set_position([pos.x0, pos.y0+dy, pos.width, pos.height-dy-dyu])
 
-plt.savefig(folder_images + 'flexpower{}_v3.pdf'.format(case))
-plt.savefig(folder_images + 'flexpower{}_v3.png'.format(case))
+plt.savefig(folder_images + 'flexpower{}_vpapersize.pdf'.format(case))
+plt.savefig(folder_images + 'flexpower{}_vpapersize.png'.format(case))
 
 
 #%% Plot stored energy per EV, one figure three plots -- Paper version
@@ -1542,12 +1547,12 @@ for i, p in enumerate(pch):
         plt.ylabel('Storage [kWh/EV]')
     plt.xlim((15,100))
     plt.ylim((0,50))
-    plt.grid(linestyle='--')    
+    plt.grid(linestyle='--', axis='y')    
 #    plt.text(x=20,y=45,s='{} kVA charger'.format(lkw[i]), fontweight='bold')
     ax.set_title('({}) {} kVA charger'.format(abc[i], lkw[i]), y=-0.25)
     plt.plot(j.index, j.index*0.8, 'k', linestyle=ls[-1], label='Storage limit')
 f.legend(ncol=5, loc=9)
-f.set_size_inches(9,4) #(11,4.76)   
+f.set_size_inches(7.47,3.3)#(9,4) #(11,4.76)   
 f.tight_layout()
 
 # resizing axs to leave space for legend
@@ -1566,8 +1571,8 @@ for i, ax in enumerate(axs):
     ax.set_position([pos.x0, pos.y0+dy, pos.width, pos.height-dy-dyu])
 
 
-plt.savefig(folder_images + 'storage{}_v4.pdf'.format(case))
-plt.savefig(folder_images + 'storage{}_v4.png'.format(case))
+plt.savefig(folder_images + 'storage{}_vpapersize.pdf'.format(case))
+plt.savefig(folder_images + 'storage{}_vpapersize.png'.format(case))
 
 #%% plot feasible area for one EV
 
@@ -1620,9 +1625,9 @@ fp = np.concatenate((np.ones(20)*bini,
 #
 #plt.figure()
 # computing power demand for trajectories
-up_power = np.concatenate((np.zeros(10), (up[10:-10]-up[9:-11]) * (60/step), (np.zeros(10))))
-dn_power = np.concatenate((np.zeros(10), (dn[10:-10]-dn[9:-11]) * (60/step), (np.zeros(10))))
-fp_power = np.concatenate((np.zeros(11), (fp[1:]-fp[:-1]) * (60/step), (np.zeros(10))))
+up_power = np.concatenate((np.zeros(10), (up[10:-10]-up[9:-11]) * (60/step)/eff, (np.zeros(10))))
+dn_power = np.concatenate((np.zeros(10), (dn[10:-50]-dn[9:-51]) * (60/step)*eff, (dn[-50:-10]-dn[-51:-11]) * (60/step)/eff, (np.zeros(10))))
+fp_power = np.concatenate((np.zeros(11), (fp[1:]-fp[:-1]) * (60/step) / eff, (np.zeros(10))))
 #plt.plot(h, up_power, '-.', color='darkgreen', label='Upper storage bound')
 #plt.plot(h, dn_power, '--', color='darkblue', label='Lower storage bound')
 #plt.plot(h, fp_power, 'r', label='Feasible trajectory')
@@ -1671,11 +1676,116 @@ plt.xlabel('Time [h]')
 plt.ylabel('Power [kW]')
 ax.set_title('(b) Charging profile', y=-0.25)
 
-f.set_size_inches(9,4) #(11,4.76) 
+f.set_size_inches(7.47,3.3)#(9,4) #(11,4.76) 
 plt.tight_layout()
 
-plt.savefig(folder_images + 'storage_traj1ev_v2.pdf')
-plt.savefig(folder_images + 'storage_traj1ev_v2.png')
+plt.savefig(folder_images + 'storage_traj1ev_vpapersize.pdf')
+plt.savefig(folder_images + 'storage_traj1ev_vpapersize.png')
+
+#%% plot feasible area for two EVs - no trajectory
+f, axs = plt.subplots(1,2, sharey=True)
+
+step = 10
+dt = 18
+hini = 16
+nst = int(dt*60/step)
+h = hini + np.array([i*step/60 for i in range(nst)])
+up = np.zeros(nst)
+dn = np.zeros(nst)
+bmax = 40
+bini = 25
+bmin = 40*0.2
+pch = 7
+eff = 0.95
+# computing up & dn trajectory
+up[10:-10] = (bini + (pch/(60/step) * eff * np.ones(nst-20)).cumsum()).clip(bmin,bmax)
+dn[10:-10] = (bini - (pch/(60/step) / eff * np.ones(nst-20)).cumsum()).clip(bmin,bmax)
+rch = (bmax - (pch/(60/step) * eff * np.ones(nst-20)).cumsum())[::-1]
+dn[10:-10] = np.max(np.array([dn[10:-10], rch]), axis=0)
+up[9]=bini
+dn[9] = bini
+
+# computing a sample feasible path
+dx = int((bmax - (bini-0.5*20))/1)
+dx2 = int(len(h[10:-10])-20-20-dx)
+fp = np.concatenate((np.ones(20)*bini, 
+                         bini - 0.5*np.ones(20).cumsum(), 
+                         bini-0.5*20+np.zeros(dx2), 
+                         (bmax+1-1*np.ones(dx).cumsum())[::-1]))
+# Plotting
+plt.sca(axs[0])
+ax = plt.gca()
+# Plot storage
+plt.plot(h,up, 'k--')
+plt.plot(h,dn, 'k--')
+plt.fill_between(h, up, dn, color='g', alpha=0.3, label='Accessible storage')
+# plot feasible path
+plt.plot(h[10:-10], fp,
+        'r', label='Feasible trajectory')
+plt.xlim(h[0],h[-1])
+plt.ylim(0,bmax+2)
+plt.xticks([hini +i for i in range(0,dt+1,2)], [(hini +i)%24 for i in range(0,dt+1,2)])
+#plt.legend(loc=4)
+plt.xlabel('Time [h]')
+plt.ylabel('Storage [kWh]')
+ax.set_title('(a) 40 kWh, 7,4 kVA', y=-0.25)
+
+# Doing it all again for a different batt
+bmax = 25
+bini = 25/40*25
+bmin = 25*0.2
+pch = 3.5
+up2 = np.zeros(nst)
+dn2 = np.zeros(nst)
+# computing up & dn trajectory
+up2[10:-10] = (bini + (pch/(60/step) * eff * np.ones(nst-20)).cumsum()).clip(bmin,bmax)
+dn2[10:-10] = (bini - (pch/(60/step) / eff * np.ones(nst-20)).cumsum()).clip(bmin,bmax)
+rch2 = (bmax - (pch/(60/step) * eff * np.ones(nst-20)).cumsum())[::-1]
+dn2[10:-10] = np.max(np.array([dn2[10:-10], rch2]), axis=0)
+up2[9]=bini
+dn2[9] = bini
+
+chdn = pch*0.90
+chup = pch*0.95
+# computing a sample feasible path
+d2x = int((bmax - (bini-chdn/(60/step)*20))/(chup/(60/step)))
+d2x2 = int(len(h[10:-10])-20-20-d2x)
+fp2 = np.concatenate((np.ones(20)*bini, 
+                         bini - chdn/(60/step)*np.ones(20).cumsum(), 
+                         bini - chdn/(60/step)*20+np.zeros(d2x2), 
+                         (bmax-chup/(60/step)*np.ones(d2x).cumsum())[::-1]))
+
+
+# Plotting them in one fig
+
+plt.sca(axs[1])
+ax = plt.gca()
+# Plot storage
+plt.plot(h,up2, 'k--')
+plt.plot(h,dn2, 'k--')
+plt.fill_between(h, up2, dn2, color='g', alpha=0.3, label='Accessible storage')
+# plot feasible path
+dx = int((bmax - (bini-0.5*20))/1)
+dx2 = int(len(h[10:-10])-20-20-dx)
+plt.plot(h[10:-10], fp2,
+        'r', label='Feasible trajectory')
+plt.xlim(h[0],h[-1])
+plt.ylim(0,42)
+plt.xticks([hini +i for i in range(0,dt+1,2)], [(hini +i)%24 for i in range(0,dt+1,2)])
+plt.legend(loc=1)
+plt.xlabel('Time [h]')
+#plt.ylabel('Storage [kWh]')
+ax.set_title('(b) 25 kWh, 3.7 kVA', y=-0.25)
+
+
+
+
+f.set_size_inches(7.47,3.3)#(9,4) #(11,4.76) 
+plt.tight_layout()
+
+plt.savefig(folder_images + 'storage_2ev_vpapersize.pdf')
+plt.savefig(folder_images + 'storage_2ev_vpapersize.png')
+
 
 #%% Do simulation for flex power profile along one day
 ## Simulation parameters
